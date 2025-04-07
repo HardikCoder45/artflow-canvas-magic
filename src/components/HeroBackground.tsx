@@ -1,10 +1,11 @@
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 
 const HeroBackground = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const [isCanvasReady, setIsCanvasReady] = useState(false);
   
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -19,6 +20,7 @@ const HeroBackground = () => {
       if (parent) {
         canvas.width = parent.offsetWidth;
         canvas.height = parent.offsetHeight;
+        setIsCanvasReady(true);
       }
     };
     
@@ -95,10 +97,12 @@ const HeroBackground = () => {
       }
     };
     
-    // Animation loop
+    // Animation loop with additional safety checks
     const animate = () => {
+      if (!isCanvasReady) return;
+      
       // Safety check: ensure canvas and context still exist
-      if (!canvas || !ctx) {
+      if (!canvasRef.current || !ctx) {
         if (animationFrameRef.current) {
           cancelAnimationFrame(animationFrameRef.current);
           animationFrameRef.current = null;
@@ -106,31 +110,44 @@ const HeroBackground = () => {
         return;
       }
       
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      
-      // Draw a subtle gradient background
-      const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-      gradient.addColorStop(0, 'rgba(26, 31, 44, 0.7)');
-      gradient.addColorStop(1, 'rgba(15, 13, 25, 0.7)');
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      
-      // Update and draw particles
-      particles.forEach(particle => {
-        particle.update();
-        particle.draw();
-      });
-      
-      connectParticles();
-      
-      animationFrameRef.current = requestAnimationFrame(animate);
+      try {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // Draw a subtle gradient background
+        const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+        gradient.addColorStop(0, 'rgba(26, 31, 44, 0.7)');
+        gradient.addColorStop(1, 'rgba(15, 13, 25, 0.7)');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Update and draw particles
+        particles.forEach(particle => {
+          particle.update();
+          particle.draw();
+        });
+        
+        connectParticles();
+        
+        animationFrameRef.current = requestAnimationFrame(animate);
+      } catch (error) {
+        console.error("Animation error:", error);
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current);
+          animationFrameRef.current = null;
+        }
+      }
     };
     
-    // Start animation
-    animate();
+    // Start animation after a short delay to ensure canvas is properly initialized
+    const timerId = setTimeout(() => {
+      if (isCanvasReady) {
+        animate();
+      }
+    }, 100);
     
     // Clean up
     return () => {
+      clearTimeout(timerId);
       window.removeEventListener('resize', updateCanvasSize);
       
       // Cancel the animation frame on component unmount
@@ -138,8 +155,10 @@ const HeroBackground = () => {
         cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = null;
       }
+      
+      setIsCanvasReady(false);
     };
-  }, []);
+  }, [isCanvasReady]);
   
   return (
     <motion.div 
