@@ -4,14 +4,15 @@ import { Button } from "@/components/ui/button";
 import { fabric } from "fabric";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
-import { Brush, Eraser, Square, Circle, Mouse, Undo, Redo, Save, Trash, Palette } from "lucide-react";
+import { Brush, Eraser, Square, Circle, Mouse, Undo, Redo, Save, Trash, Palette, Droplet, CloudSnow } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { createWatercolorPattern, createChalkPattern } from "@/utils/brushTextures";
 
 interface ToolbarProps {
   canvas: fabric.Canvas | null;
 }
 
-export type Tool = "select" | "pen" | "brush" | "eraser" | "rectangle" | "circle";
+export type Tool = "select" | "pen" | "brush" | "eraser" | "rectangle" | "circle" | "watercolor" | "chalk";
 
 const Toolbar = ({ canvas }: ToolbarProps) => {
   const [activeTool, setActiveTool] = useState<Tool>("pen");
@@ -25,7 +26,7 @@ const Toolbar = ({ canvas }: ToolbarProps) => {
     if (!canvas) return;
 
     // Set drawing mode based on active tool
-    canvas.isDrawingMode = ["pen", "brush", "eraser"].includes(activeTool);
+    canvas.isDrawingMode = ["pen", "brush", "eraser", "watercolor", "chalk"].includes(activeTool);
 
     // Configure brush
     if (canvas.isDrawingMode) {
@@ -33,9 +34,20 @@ const Toolbar = ({ canvas }: ToolbarProps) => {
         // For eraser, use white color or implement true eraser
         canvas.freeDrawingBrush.color = "#ffffff";
         canvas.freeDrawingBrush.width = brushSize * 2; // Larger size for eraser
+      } else if (activeTool === "watercolor") {
+        const watercolorBrush = createWatercolorPattern(canvas, brushColor);
+        canvas.freeDrawingBrush = watercolorBrush;
+        canvas.freeDrawingBrush.width = brushSize * 3;
+      } else if (activeTool === "chalk") {
+        const chalkBrush = createChalkPattern(canvas, brushColor);
+        canvas.freeDrawingBrush = chalkBrush;
+        canvas.freeDrawingBrush.width = brushSize * 1.5;
       } else {
-        canvas.freeDrawingBrush.color = brushColor;
-        canvas.freeDrawingBrush.width = brushSize;
+        // Default pen/brush
+        if (canvas.freeDrawingBrush instanceof fabric.PencilBrush) {
+          canvas.freeDrawingBrush.color = brushColor;
+          canvas.freeDrawingBrush.width = brushSize;
+        }
       }
     }
   }, [canvas, activeTool, brushSize, brushColor]);
@@ -172,6 +184,26 @@ const Toolbar = ({ canvas }: ToolbarProps) => {
           title="Pen"
         >
           <Brush size={20} />
+        </Button>
+        
+        <Button
+          variant={activeTool === "watercolor" ? "default" : "outline"}
+          size="icon"
+          onClick={() => handleToolChange("watercolor")}
+          className={activeTool === "watercolor" ? "bg-artflow-purple hover:bg-artflow-deep-purple text-white" : ""}
+          title="Watercolor"
+        >
+          <Droplet size={20} />
+        </Button>
+        
+        <Button
+          variant={activeTool === "chalk" ? "default" : "outline"}
+          size="icon"
+          onClick={() => handleToolChange("chalk")}
+          className={activeTool === "chalk" ? "bg-artflow-purple hover:bg-artflow-deep-purple text-white" : ""}
+          title="Chalk"
+        >
+          <CloudSnow size={20} />
         </Button>
         
         <Button

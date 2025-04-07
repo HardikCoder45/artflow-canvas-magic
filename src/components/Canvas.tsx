@@ -37,6 +37,20 @@ const Canvas = ({ className, width = 800, height = 600, onCanvasCreated }: Canva
       fabricCanvas.freeDrawingBrush.decimate = 8;
     }
 
+    // Set up custom brush options
+    fabric.PatternBrush.prototype.getPatternSrc = function() {
+      // Default pattern if none specified
+      const patternCanvas = document.createElement('canvas');
+      patternCanvas.width = 10;
+      patternCanvas.height = 10;
+      const ctx = patternCanvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = this.color || 'rgb(0,0,0)';
+        ctx.fillRect(0, 0, 10, 10);
+      }
+      return patternCanvas;
+    };
+
     setCanvas(fabricCanvas);
     
     // Notify parent component
@@ -46,7 +60,7 @@ const Canvas = ({ className, width = 800, height = 600, onCanvasCreated }: Canva
     
     toast({
       title: "Canvas Ready",
-      description: "Start creating your masterpiece!",
+      description: "Start creating your masterpiece with various brush textures!",
       duration: 3000,
     });
 
