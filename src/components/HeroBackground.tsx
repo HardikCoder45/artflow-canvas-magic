@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 
 const HeroBackground = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animationFrameRef = useRef<number | null>(null);
   
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -75,6 +76,7 @@ const HeroBackground = () => {
     
     // Draw lines between close particles
     const connectParticles = () => {
+      if (!ctx) return;
       for (let i = 0; i < particles.length; i++) {
         for (let j = i; j < particles.length; j++) {
           const dx = particles[i].x - particles[j].x;
@@ -95,6 +97,15 @@ const HeroBackground = () => {
     
     // Animation loop
     const animate = () => {
+      // Safety check: ensure canvas and context still exist
+      if (!canvas || !ctx) {
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current);
+          animationFrameRef.current = null;
+        }
+        return;
+      }
+      
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
       // Draw a subtle gradient background
@@ -112,13 +123,21 @@ const HeroBackground = () => {
       
       connectParticles();
       
-      requestAnimationFrame(animate);
+      animationFrameRef.current = requestAnimationFrame(animate);
     };
     
+    // Start animation
     animate();
     
+    // Clean up
     return () => {
       window.removeEventListener('resize', updateCanvasSize);
+      
+      // Cancel the animation frame on component unmount
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
     };
   }, []);
   

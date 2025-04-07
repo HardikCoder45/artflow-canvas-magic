@@ -1,5 +1,5 @@
 
-import { createContext, useContext, ReactNode, useState, useEffect } from "react";
+import { createContext, useContext, ReactNode, useState, useEffect, useRef } from "react";
 
 interface ParallaxContextType {
   scrollY: number;
@@ -19,10 +19,13 @@ export const useParallax = () => {
 
 export const ParallaxProvider = ({ children }: ParallaxProviderProps) => {
   const [scrollY, setScrollY] = useState(0);
+  const isComponentMounted = useRef(true);
   
   useEffect(() => {
     const handleScroll = () => {
-      setScrollY(window.scrollY);
+      if (isComponentMounted.current) {
+        setScrollY(window.scrollY);
+      }
     };
     
     window.addEventListener("scroll", handleScroll);
@@ -31,6 +34,7 @@ export const ParallaxProvider = ({ children }: ParallaxProviderProps) => {
     setScrollY(window.scrollY);
     
     return () => {
+      isComponentMounted.current = false;
       window.removeEventListener("scroll", handleScroll);
     };
   }, []);

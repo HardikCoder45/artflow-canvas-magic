@@ -14,6 +14,7 @@ interface CanvasProps {
 
 const Canvas = ({ className, width = 800, height = 600, zoom = 1, onCanvasCreated }: CanvasProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fabricCanvasRef = useRef<fabric.Canvas | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [canvas, setCanvas] = useState<fabric.Canvas | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -36,28 +37,35 @@ const Canvas = ({ className, width = 800, height = 600, zoom = 1, onCanvasCreate
       preserveObjectStacking: true,
     });
 
-    // Set up brush
-    fabricCanvas.freeDrawingBrush.color = "#000000";
-    fabricCanvas.freeDrawingBrush.width = 5;
+    // Store in ref for cleanup
+    fabricCanvasRef.current = fabricCanvas;
 
-    // Modify default brush for smooth drawing
-    if (fabricCanvas.freeDrawingBrush instanceof fabric.PencilBrush) {
-      fabricCanvas.freeDrawingBrush.decimate = 8;
+    // Set up brush
+    if (fabricCanvas.freeDrawingBrush) {
+      fabricCanvas.freeDrawingBrush.color = "#000000";
+      fabricCanvas.freeDrawingBrush.width = 5;
+
+      // Modify default brush for smooth drawing
+      if (fabricCanvas.freeDrawingBrush instanceof fabric.PencilBrush) {
+        fabricCanvas.freeDrawingBrush.decimate = 8;
+      }
     }
 
     // Set up custom brush options
-    fabric.PatternBrush.prototype.getPatternSrc = function() {
-      // Default pattern if none specified
-      const patternCanvas = document.createElement('canvas');
-      patternCanvas.width = 10;
-      patternCanvas.height = 10;
-      const ctx = patternCanvas.getContext('2d');
-      if (ctx) {
-        ctx.fillStyle = this.color || 'rgb(0,0,0)';
-        ctx.fillRect(0, 0, 10, 10);
-      }
-      return patternCanvas;
-    };
+    if (typeof fabric.PatternBrush !== 'undefined') {
+      fabric.PatternBrush.prototype.getPatternSrc = function() {
+        // Default pattern if none specified
+        const patternCanvas = document.createElement('canvas');
+        patternCanvas.width = 10;
+        patternCanvas.height = 10;
+        const ctx = patternCanvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = this.color || 'rgb(0,0,0)';
+          ctx.fillRect(0, 0, 10, 10);
+        }
+        return patternCanvas;
+      };
+    }
 
     // Set up events
     fabricCanvas.on('mouse:down', (opt) => {
@@ -96,7 +104,7 @@ const Canvas = ({ className, width = 800, height = 600, zoom = 1, onCanvasCreate
       
       if (fabricCanvas.isDrawingMode) {
         // Use mouse velocity to adjust brush width for pressure sensitivity simulation
-        if (event.e && isDrawing) {
+        if (event.e && isDrawing && fabricCanvas.freeDrawingBrush) {
           const velocity = Math.sqrt(
             Math.pow(event.e.movementX || 0, 2) + 
             Math.pow(event.e.movementY || 0, 2)
@@ -104,7 +112,7 @@ const Canvas = ({ className, width = 800, height = 600, zoom = 1, onCanvasCreate
           
           // Adjust brush width based on velocity (faster = thinner, slower = thicker)
           // But only if it's not too extreme and we're actually drawing
-          if (velocity > 0 && fabricCanvas.freeDrawingBrush) {
+          if (velocity > 0) {
             const currentWidth = fabricCanvas.freeDrawingBrush.width;
             const minWidth = Math.max(currentWidth * 0.5, 1); // Don't go below 1px
             const maxWidth = currentWidth * 1.5; // Don't expand too much
@@ -157,7 +165,10 @@ const Canvas = ({ className, width = 800, height = 600, zoom = 1, onCanvasCreate
 
     // Cleanup on unmount
     return () => {
-      fabricCanvas.dispose();
+      if (fabricCanvasRef.current) {
+        fabricCanvasRef.current.dispose();
+        fabricCanvasRef.current = null;
+      }
     };
   }, [width, height, toast, onCanvasCreated]);
 
