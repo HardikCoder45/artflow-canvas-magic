@@ -1,346 +1,121 @@
 
-import { useEffect, useState } from "react";
+import { useState } from 'react';
 import { Button } from "@/components/ui/button";
-import { fabric } from "fabric";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
-import { Brush, Eraser, Square, Circle, Mouse, Undo, Redo, Save, Trash, Palette, Droplet, CloudSnow } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { createWatercolorPattern, createChalkPattern } from "@/utils/brushTextures";
+import { Brush, Eraser, Droplet, Wand2 } from "lucide-react";
 
 interface ToolbarProps {
-  canvas: fabric.Canvas | null;
+  onBrushSelect: (brushType: string) => void;
+  onBrushSizeChange: (size: number) => void;
+  onColorChange: (color: string) => void;
+  currentBrush: string;
+  brushSize: number;
+  brushColor: string;
 }
 
-export type Tool = "select" | "pen" | "brush" | "eraser" | "rectangle" | "circle" | "watercolor" | "chalk";
+const Toolbar = ({ 
+  onBrushSelect, 
+  onBrushSizeChange, 
+  onColorChange,
+  currentBrush,
+  brushSize,
+  brushColor
+}: ToolbarProps) => {
+  const [activeTab, setActiveTab] = useState("brushes");
 
-const Toolbar = ({ canvas }: ToolbarProps) => {
-  const [activeTool, setActiveTool] = useState<Tool>("pen");
-  const [brushSize, setBrushSize] = useState(5);
-  const [brushColor, setBrushColor] = useState("#000000");
-  const [historyIndex, setHistoryIndex] = useState(-1);
-  const [history, setHistory] = useState<string[]>([]);
+  // Predefined color palette
+  const colorPalette = [
+    "#000000", "#ffffff", "#ff0000", "#00ff00", "#0000ff", 
+    "#ffff00", "#ff00ff", "#00ffff", "#ff8000", "#8000ff",
+    "#ff0080", "#0080ff", "#80ff00", "#241571", "#845EC2",
+    "#D65DB1", "#FF6F91", "#FF9671", "#FFC75F", "#F9F871"
+  ];
 
-  // Update brush settings when they change
-  useEffect(() => {
-    if (!canvas) return;
-
-    // Set drawing mode based on active tool
-    canvas.isDrawingMode = ["pen", "brush", "eraser", "watercolor", "chalk"].includes(activeTool);
-
-    // Configure brush
-    if (canvas.isDrawingMode) {
-      if (activeTool === "eraser") {
-        // For eraser, use white color or implement true eraser
-        canvas.freeDrawingBrush.color = "#ffffff";
-        canvas.freeDrawingBrush.width = brushSize * 2; // Larger size for eraser
-      } else if (activeTool === "watercolor") {
-        const watercolorBrush = createWatercolorPattern(canvas, brushColor);
-        canvas.freeDrawingBrush = watercolorBrush;
-        canvas.freeDrawingBrush.width = brushSize * 3;
-      } else if (activeTool === "chalk") {
-        const chalkBrush = createChalkPattern(canvas, brushColor);
-        canvas.freeDrawingBrush = chalkBrush;
-        canvas.freeDrawingBrush.width = brushSize * 1.5;
-      } else {
-        // Default pen/brush
-        if (canvas.freeDrawingBrush instanceof fabric.PencilBrush) {
-          canvas.freeDrawingBrush.color = brushColor;
-          canvas.freeDrawingBrush.width = brushSize;
-        }
-      }
-    }
-  }, [canvas, activeTool, brushSize, brushColor]);
-
-  // Save canvas state to history after object added
-  useEffect(() => {
-    if (!canvas) return;
-
-    const saveToHistory = () => {
-      if (historyIndex < history.length - 1) {
-        // Truncate future history if we've gone back and made changes
-        setHistory(history.slice(0, historyIndex + 1));
-      }
-
-      const newState = JSON.stringify(canvas.toJSON());
-      setHistory([...history, newState]);
-      setHistoryIndex(history.length);
-    };
-
-    // Add event listeners
-    canvas.on("object:added", saveToHistory);
-    canvas.on("object:modified", saveToHistory);
-
-    return () => {
-      canvas.off("object:added", saveToHistory);
-      canvas.off("object:modified", saveToHistory);
-    };
-  }, [canvas, history, historyIndex]);
-
-  // Tool change handlers
-  const handleToolChange = (tool: Tool) => {
-    setActiveTool(tool);
-    
-    if (!canvas) return;
-
-    // Deselect all objects when changing tools
-    canvas.discardActiveObject();
-    canvas.requestRenderAll();
-
-    if (tool === "select") {
-      canvas.isDrawingMode = false;
-    }
-  };
-
-  // Shape drawing
-  const addShape = (shape: "rectangle" | "circle") => {
-    if (!canvas) return;
-    
-    let shapeObj;
-    
-    if (shape === "rectangle") {
-      shapeObj = new fabric.Rect({
-        left: 100,
-        top: 100,
-        width: 100,
-        height: 100,
-        fill: brushColor,
-      });
-    } else {
-      shapeObj = new fabric.Circle({
-        left: 100,
-        top: 100,
-        radius: 50,
-        fill: brushColor,
-      });
-    }
-    
-    canvas.add(shapeObj);
-    canvas.setActiveObject(shapeObj);
-    canvas.requestRenderAll();
-  };
-
-  // Clear canvas
-  const clearCanvas = () => {
-    if (!canvas) return;
-    canvas.clear();
-    canvas.backgroundColor = "#ffffff";
-    canvas.requestRenderAll();
-    
-    // Reset history
-    const newState = JSON.stringify(canvas.toJSON());
-    setHistory([newState]);
-    setHistoryIndex(0);
-  };
-
-  // Undo/Redo
-  const undo = () => {
-    if (!canvas || historyIndex <= 0) return;
-    const newIndex = historyIndex - 1;
-    canvas.loadFromJSON(history[newIndex], () => {
-      setHistoryIndex(newIndex);
-      canvas.requestRenderAll();
-    });
-  };
-
-  const redo = () => {
-    if (!canvas || historyIndex >= history.length - 1) return;
-    const newIndex = historyIndex + 1;
-    canvas.loadFromJSON(history[newIndex], () => {
-      setHistoryIndex(newIndex);
-      canvas.requestRenderAll();
-    });
-  };
-
-  // Save canvas as image
-  const saveCanvas = () => {
-    if (!canvas) return;
-    const link = document.createElement("a");
-    link.download = "artflow-canvas-" + new Date().toISOString() + ".png";
-    link.href = canvas.toDataURL({
-      format: "png",
-      quality: 1,
-    });
-    link.click();
-  };
+  // Brush types
+  const brushTypes = [
+    { id: "pencil", name: "Pencil", icon: <Brush className="w-4 h-4" /> },
+    { id: "spray", name: "Spray", icon: <Droplet className="w-4 h-4" /> },
+    { id: "watercolor", name: "Watercolor", icon: <Wand2 className="w-4 h-4" /> },
+    { id: "chalk", name: "Chalk", icon: <Brush className="w-4 h-4" /> },
+    { id: "eraser", name: "Eraser", icon: <Eraser className="w-4 h-4" /> }
+  ];
 
   return (
-    <div className="flex flex-col gap-2 p-2 bg-artflow-soft-gray rounded-lg shadow-md">
-      <div className="flex flex-wrap gap-2 mb-2">
-        <Button
-          variant={activeTool === "select" ? "default" : "outline"}
-          size="icon"
-          onClick={() => handleToolChange("select")}
-          title="Select"
-        >
-          <Mouse size={20} />
-        </Button>
+    <div className="bg-card rounded-lg shadow-lg p-4 h-full flex flex-col">
+      <Tabs defaultValue="brushes" className="w-full" onValueChange={setActiveTab}>
+        <TabsList className="grid grid-cols-2 mb-4">
+          <TabsTrigger value="brushes">Brushes</TabsTrigger>
+          <TabsTrigger value="colors">Colors</TabsTrigger>
+        </TabsList>
         
-        <Button
-          variant={activeTool === "pen" ? "default" : "outline"}
-          size="icon"
-          onClick={() => handleToolChange("pen")}
-          className={activeTool === "pen" ? "bg-artflow-purple hover:bg-artflow-deep-purple text-white" : ""}
-          title="Pen"
-        >
-          <Brush size={20} />
-        </Button>
+        <TabsContent value="brushes" className="space-y-4">
+          <div className="grid grid-cols-2 gap-2">
+            {brushTypes.map(brush => (
+              <Button
+                key={brush.id}
+                variant={currentBrush === brush.id ? "default" : "outline"}
+                size="sm"
+                className={`flex items-center justify-start gap-2 ${
+                  currentBrush === brush.id ? "bg-primary text-primary-foreground" : ""
+                }`}
+                onClick={() => onBrushSelect(brush.id)}
+              >
+                {brush.icon}
+                <span>{brush.name}</span>
+              </Button>
+            ))}
+          </div>
+          
+          <div className="space-y-2">
+            <div className="flex justify-between">
+              <span className="text-sm font-medium">Brush Size</span>
+              <span className="text-sm font-medium">{brushSize}px</span>
+            </div>
+            <Slider 
+              value={[brushSize]} 
+              min={1} 
+              max={30} 
+              step={1}
+              onValueChange={(value) => onBrushSizeChange(value[0])}
+            />
+          </div>
+        </TabsContent>
         
-        <Button
-          variant={activeTool === "watercolor" ? "default" : "outline"}
-          size="icon"
-          onClick={() => handleToolChange("watercolor")}
-          className={activeTool === "watercolor" ? "bg-artflow-purple hover:bg-artflow-deep-purple text-white" : ""}
-          title="Watercolor"
-        >
-          <Droplet size={20} />
-        </Button>
-        
-        <Button
-          variant={activeTool === "chalk" ? "default" : "outline"}
-          size="icon"
-          onClick={() => handleToolChange("chalk")}
-          className={activeTool === "chalk" ? "bg-artflow-purple hover:bg-artflow-deep-purple text-white" : ""}
-          title="Chalk"
-        >
-          <CloudSnow size={20} />
-        </Button>
-        
-        <Button
-          variant={activeTool === "eraser" ? "default" : "outline"}
-          size="icon"
-          onClick={() => handleToolChange("eraser")}
-          title="Eraser"
-        >
-          <Eraser size={20} />
-        </Button>
-        
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={() => {
-            handleToolChange("rectangle");
-            addShape("rectangle");
-          }}
-          title="Rectangle"
-        >
-          <Square size={20} />
-        </Button>
-        
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={() => {
-            handleToolChange("circle");
-            addShape("circle");
-          }}
-          title="Circle"
-        >
-          <Circle size={20} />
-        </Button>
-      </div>
-
-      <div className="flex flex-wrap gap-2 mb-2">
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={undo}
-          disabled={historyIndex <= 0}
-          title="Undo"
-        >
-          <Undo size={20} />
-        </Button>
-        
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={redo}
-          disabled={historyIndex >= history.length - 1}
-          title="Redo"
-        >
-          <Redo size={20} />
-        </Button>
-        
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={saveCanvas}
-          title="Save"
-        >
-          <Save size={20} />
-        </Button>
-        
-        <Button
-          variant="destructive"
-          size="icon"
-          onClick={clearCanvas}
-          title="Clear Canvas"
-        >
-          <Trash size={20} />
-        </Button>
-        
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button 
-              variant="outline" 
-              size="icon" 
-              className="relative" 
-              title="Color"
-            >
-              <Palette size={20} />
-              <div 
-                className="absolute w-4 h-4 rounded-full border border-gray-400 bottom-1 right-1" 
-                style={{ backgroundColor: brushColor }}
+        <TabsContent value="colors" className="space-y-4">
+          <div className="grid grid-cols-5 gap-2">
+            {colorPalette.map(color => (
+              <button
+                key={color}
+                className={`w-10 h-10 rounded-md hover:scale-110 transition-transform ${
+                  color === brushColor ? 'ring-2 ring-primary ring-offset-2' : ''
+                }`}
+                style={{ backgroundColor: color }}
+                onClick={() => onColorChange(color)}
+                aria-label={`Select ${color} color`}
               />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-64 p-4">
-            <Tabs defaultValue="picker">
-              <TabsList className="mb-4">
-                <TabsTrigger value="picker">Color Picker</TabsTrigger>
-                <TabsTrigger value="preset">Presets</TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="picker" className="space-y-4">
-                <input 
-                  type="color" 
-                  value={brushColor} 
-                  onChange={(e) => setBrushColor(e.target.value)} 
-                  className="w-full h-10 cursor-pointer"
-                />
-              </TabsContent>
-              
-              <TabsContent value="preset" className="grid grid-cols-5 gap-2">
-                {[
-                  "#000000", "#ffffff", "#ff0000", "#00ff00", "#0000ff",
-                  "#ffff00", "#00ffff", "#ff00ff", "#9b87f5", "#F97316",
-                  "#7E69AB", "#1A1F2C", "#F1F0FB", "#6E59A5", "#D6BCFA"
-                ].map((color) => (
-                  <div
-                    key={color}
-                    className="w-8 h-8 rounded-full cursor-pointer border border-gray-300 hover:scale-110 transition-transform"
-                    style={{ backgroundColor: color }}
-                    onClick={() => setBrushColor(color)}
-                  />
-                ))}
-              </TabsContent>
-            </Tabs>
-          </PopoverContent>
-        </Popover>
-      </div>
-
-      <div className="flex items-center gap-2 px-2">
-        <span className="text-xs">Size:</span>
-        <Slider
-          className="w-32"
-          min={1}
-          max={50}
-          step={1}
-          value={[brushSize]}
-          onValueChange={(value) => setBrushSize(value[0])}
-        />
-        <span className="text-xs w-6">{brushSize}</span>
-      </div>
+            ))}
+          </div>
+          
+          <div className="space-y-2">
+            <label htmlFor="custom-color" className="text-sm font-medium">
+              Custom Color
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="custom-color"
+                type="color"
+                value={brushColor}
+                onChange={(e) => onColorChange(e.target.value)}
+                className="w-12 h-12 cursor-pointer rounded bg-transparent p-0 border-0"
+              />
+              <div className="flex-1 border rounded p-2">
+                <span className="text-sm">{brushColor}</span>
+              </div>
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };
