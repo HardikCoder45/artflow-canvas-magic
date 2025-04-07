@@ -1,12 +1,19 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+
+import ArtCanvas from "@/components/ArtCanvas";
 
 const Index = () => {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">Welcome to Your Blank App</h1>
-        <p className="text-xl text-gray-600">Start building your amazing project here!</p>
-      </div>
+    <div className="min-h-screen bg-artflow-dark-purple p-4 overflow-hidden">
+      <header className="mb-4">
+        <h1 className="text-3xl font-bold text-white text-center mb-2">
+          <span className="text-artflow-purple">Art</span>Flow Canvas
+        </h1>
+        <p className="text-center text-gray-300">Create beautiful digital art with interactive tools</p>
+      </header>
+      
+      <main className="container mx-auto">
+        <ArtCanvas />
+      </main>
     </div>
   );
 };
