@@ -1,5 +1,5 @@
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, forwardRef } from "react";
 import { fabric } from "fabric";
 import { useToast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
@@ -8,13 +8,18 @@ interface CanvasProps {
   className?: string;
   width?: number;
   height?: number;
+  zoom?: number;
   onCanvasCreated?: (canvas: fabric.Canvas) => void;
 }
 
-const Canvas = ({ className, width = 800, height = 600, onCanvasCreated }: CanvasProps) => {
+const Canvas = ({ className, width = 800, height = 600, zoom = 1, onCanvasCreated }: CanvasProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const [canvas, setCanvas] = useState<fabric.Canvas | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [isPanning, setIsPanning] = useState(false);
+  const [lastPosX, setLastPosX] = useState(0);
+  const [lastPosY, setLastPosY] = useState(0);
   const { toast } = useToast();
 
   // Initialize canvas
@@ -27,6 +32,8 @@ const Canvas = ({ className, width = 800, height = 600, onCanvasCreated }: Canva
       width,
       height,
       isDrawingMode: false,
+      selection: true,
+      preserveObjectStacking: true,
     });
 
     // Set up brush
@@ -53,15 +60,40 @@ const Canvas = ({ className, width = 800, height = 600, onCanvasCreated }: Canva
     };
 
     // Set up events
-    fabricCanvas.on('mouse:down', () => {
+    fabricCanvas.on('mouse:down', (opt) => {
       setIsDrawing(true);
+      
+      // Handle panning with middle mouse button or space + drag
+      if (opt.e.button === 1 || (opt.e.shiftKey && !fabricCanvas.isDrawingMode)) {
+        setIsPanning(true);
+        fabricCanvas.selection = false;
+        setLastPosX(opt.e.clientX);
+        setLastPosY(opt.e.clientY);
+        fabricCanvas.setCursor('grab');
+      }
     });
 
     fabricCanvas.on('mouse:up', () => {
       setIsDrawing(false);
+      setIsPanning(false);
+      fabricCanvas.selection = true;
+      fabricCanvas.setCursor('default');
     });
 
     fabricCanvas.on('mouse:move', (event) => {
+      // Handle panning
+      if (isPanning && event.e) {
+        const deltaX = event.e.clientX - lastPosX;
+        const deltaY = event.e.clientY - lastPosY;
+        
+        // Pan the canvas
+        fabricCanvas.relativePan({ x: deltaX, y: deltaY });
+        
+        setLastPosX(event.e.clientX);
+        setLastPosY(event.e.clientY);
+        return;
+      }
+      
       if (fabricCanvas.isDrawingMode) {
         // Use mouse velocity to adjust brush width for pressure sensitivity simulation
         if (event.e && isDrawing) {
@@ -89,6 +121,27 @@ const Canvas = ({ className, width = 800, height = 600, onCanvasCreated }: Canva
       }
     });
 
+    // Handle mouse wheel zoom
+    fabricCanvas.on('mouse:wheel', (opt) => {
+      const delta = opt.e.deltaY;
+      let zoom = fabricCanvas.getZoom();
+      zoom *= 0.999 ** delta;
+      if (zoom > 20) zoom = 20;
+      if (zoom < 0.01) zoom = 0.01;
+      
+      // Get the position of the mouse relative to the canvas
+      const point = new fabric.Point(
+        opt.e.offsetX, 
+        opt.e.offsetY
+      );
+      
+      // Zoom to the point where the mouse is
+      fabricCanvas.zoomToPoint(point, zoom);
+      
+      opt.e.preventDefault();
+      opt.e.stopPropagation();
+    });
+
     setCanvas(fabricCanvas);
     
     // Notify parent component
@@ -108,6 +161,14 @@ const Canvas = ({ className, width = 800, height = 600, onCanvasCreated }: Canva
     };
   }, [width, height, toast, onCanvasCreated]);
 
+  // Apply zoom when it changes
+  useEffect(() => {
+    if (canvas && zoom) {
+      canvas.setZoom(zoom);
+      canvas.renderAll();
+    }
+  }, [canvas, zoom]);
+
   // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -122,17 +183,35 @@ const Canvas = ({ className, width = 800, height = 600, onCanvasCreated }: Canva
         window.dispatchEvent(new CustomEvent('art-canvas-redo'));
         e.preventDefault();
       }
+      // Space key for panning
+      if (e.key === ' ' && canvas) {
+        canvas.defaultCursor = 'grab';
+        document.body.style.cursor = 'grab';
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      // Space key released
+      if (e.key === ' ' && canvas) {
+        canvas.defaultCursor = 'default';
+        document.body.style.cursor = 'default';
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
     
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
     };
-  }, []);
+  }, [canvas]);
 
   return (
-    <div className={cn("relative canvas-wrapper", className)}>
+    <div 
+      ref={wrapperRef}
+      className={cn("relative canvas-wrapper overflow-hidden", className)}
+    >
       <canvas 
         ref={canvasRef} 
         className={cn(
