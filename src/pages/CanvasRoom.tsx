@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import ArtCanvas from '@/components/ArtCanvas';
@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 const CanvasRoom = () => {
   const { id } = useParams<{ id: string }>();
   const [isLoaded, setIsLoaded] = useState(false);
+  const canvasContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     // Set dark mode for canvas room
@@ -54,15 +55,18 @@ const CanvasRoom = () => {
       </div>
 
       <motion.div 
-        className="container mx-auto py-20 px-4"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, delay: 0.2 }}
+        ref={canvasContainerRef}
+        className="container mx-auto py-20 px-0 h-[calc(100vh-80px)]"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.6 }}
       >
         {isLoaded ? (
-          <ArtCanvas fullScreen={true} />
+          <div className="w-full h-full">
+            <ArtCanvas fullScreen={true} />
+          </div>
         ) : (
-          <div className="flex items-center justify-center h-[80vh]">
+          <div className="flex items-center justify-center h-full">
             <div className="flex flex-col items-center gap-4">
               <div className="w-16 h-16 rounded-full border-4 border-t-purple-500 border-r-transparent border-b-transparent border-l-transparent animate-spin"></div>
               <p className="text-lg text-white/70">Loading canvas...</p>
