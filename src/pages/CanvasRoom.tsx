@@ -11,20 +11,27 @@ import { toast } from 'sonner';
 const CanvasRoom = () => {
   const { id } = useParams<{ id: string }>();
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
   const canvasContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    // Set component as mounted
+    setIsMounted(true);
+    
     // Set dark mode for canvas room
     document.body.classList.add('dark-theme');
     document.body.style.overflow = 'hidden';
     
     // Simulate loading delay for animation
     const timer = setTimeout(() => {
-      setIsLoaded(true);
+      if (isMounted) {
+        setIsLoaded(true);
+      }
     }, 600);
     
     return () => {
       clearTimeout(timer);
+      setIsMounted(false);
       document.body.classList.remove('dark-theme');
       document.body.style.overflow = '';
     };
@@ -97,9 +104,9 @@ const CanvasRoom = () => {
         animate={{ opacity: 1 }}
         transition={{ duration: 0.6 }}
       >
-        {isLoaded ? (
+        {isMounted && isLoaded ? (
           <div className="w-full h-full">
-            <ArtCanvas fullScreen={true} />
+            <ArtCanvas key={`canvas-${id}`} fullScreen={true} />
           </div>
         ) : (
           <div className="flex items-center justify-center h-full">

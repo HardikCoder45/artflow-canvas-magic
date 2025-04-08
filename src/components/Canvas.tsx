@@ -15,7 +15,6 @@ const Canvas = ({ className, width = 800, height = 600, onCanvasCreated }: Canva
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fabricCanvasRef = useRef<fabric.Canvas | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const [canvas, setCanvas] = useState<fabric.Canvas | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
   const [lastPosX, setLastPosX] = useState(0);
@@ -52,22 +51,6 @@ const Canvas = ({ className, width = 800, height = 600, onCanvasCreated }: Canva
           if (fabricCanvas.freeDrawingBrush instanceof fabric.PencilBrush) {
             fabricCanvas.freeDrawingBrush.decimate = 8;
           }
-        }
-        
-        // Set up custom brush options
-        if (typeof fabric.PatternBrush !== 'undefined') {
-          fabric.PatternBrush.prototype.getPatternSrc = function() {
-            // Default pattern if none specified
-            const patternCanvas = document.createElement('canvas');
-            patternCanvas.width = 10;
-            patternCanvas.height = 10;
-            const ctx = patternCanvas.getContext('2d');
-            if (ctx) {
-              ctx.fillStyle = this.color || 'rgb(0,0,0)';
-              ctx.fillRect(0, 0, 10, 10);
-            }
-            return patternCanvas;
-          };
         }
         
         // Set up events
@@ -132,10 +115,6 @@ const Canvas = ({ className, width = 800, height = 600, onCanvasCreated }: Canva
           }
         });
         
-        // Remove mouse wheel zoom handler to fix the clearRect error
-        // Removed: fabricCanvas.on('mouse:wheel', ...)
-        
-        setCanvas(fabricCanvas);
         setIsInitialized(true);
         
         // Notify parent component
@@ -164,15 +143,15 @@ const Canvas = ({ className, width = 800, height = 600, onCanvasCreated }: Canva
       
       if (fabricCanvasRef.current) {
         try {
+          // Important: We need to properly dispose of the canvas to prevent errors
           fabricCanvasRef.current.dispose();
+          fabricCanvasRef.current = null;
         } catch (error) {
           console.error("Error disposing canvas:", error);
         }
-        fabricCanvasRef.current = null;
       }
       
       setIsInitialized(false);
-      setCanvas(null);
     };
   }, [width, height, toast, onCanvasCreated]);
 
@@ -191,16 +170,16 @@ const Canvas = ({ className, width = 800, height = 600, onCanvasCreated }: Canva
         e.preventDefault();
       }
       // Space key for panning
-      if (e.key === ' ' && canvas) {
-        canvas.defaultCursor = 'grab';
+      if (e.key === ' ' && fabricCanvasRef.current) {
+        fabricCanvasRef.current.defaultCursor = 'grab';
         document.body.style.cursor = 'grab';
       }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
       // Space key released
-      if (e.key === ' ' && canvas) {
-        canvas.defaultCursor = 'default';
+      if (e.key === ' ' && fabricCanvasRef.current) {
+        fabricCanvasRef.current.defaultCursor = 'default';
         document.body.style.cursor = 'default';
       }
     };
@@ -212,7 +191,7 @@ const Canvas = ({ className, width = 800, height = 600, onCanvasCreated }: Canva
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [canvas]);
+  }, []);
 
   return (
     <div 

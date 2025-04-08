@@ -58,12 +58,36 @@ const ArtCanvas = ({ fullScreen = false }: ArtCanvasProps) => {
   const [bgColor, setBgColor] = useState("#ffffff");
   const [canvasWidth, setCanvasWidth] = useState(fullScreen ? 1200 : 800);
   const [canvasHeight, setCanvasHeight] = useState(fullScreen ? 800 : 600);
+  const [isMounted, setIsMounted] = useState(false);
   const { toast } = useToast();
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const canvasInstanceRef = useRef<fabric.Canvas | null>(null);
+
+  // Set component as mounted
+  useEffect(() => {
+    setIsMounted(true);
+    
+    return () => {
+      setIsMounted(false);
+      
+      // Make sure to clean up canvas on unmount
+      if (canvasInstanceRef.current) {
+        try {
+          canvasInstanceRef.current.dispose();
+          canvasInstanceRef.current = null;
+        } catch (error) {
+          console.error("Error disposing canvas on unmount:", error);
+        }
+      }
+    };
+  }, []);
 
   // Handle canvas creation
   const handleCanvasCreated = useCallback((fabricCanvas: fabric.Canvas) => {
+    if (!isMounted) return;
+    
     setCanvas(fabricCanvas);
+    canvasInstanceRef.current = fabricCanvas;
     
     // Set background color
     fabricCanvas.backgroundColor = bgColor;
@@ -73,8 +97,8 @@ const ArtCanvas = ({ fullScreen = false }: ArtCanvasProps) => {
     
     // Initialize history
     fabricCanvas.on('object:added', () => {
-      if (canvas) {
-        const currentState = [...canvas.getObjects()];
+      if (fabricCanvas) {
+        const currentState = [...fabricCanvas.getObjects()];
         setUndoStack(prev => [...prev, currentState]);
         setRedoStack([]);
       }
@@ -103,6 +127,8 @@ const ArtCanvas = ({ fullScreen = false }: ArtCanvasProps) => {
     
     // Symmetry drawing support
     fabricCanvas.on('mouse:move', (options) => {
+      if (!isMounted) return;
+      
       if (symMode !== "none" && fabricCanvas.isDrawingMode && options.e) {
         const { x, y } = fabricCanvas.getPointer(options.e);
         const canvasCenter = fabricCanvas.getCenter();
@@ -135,11 +161,11 @@ const ArtCanvas = ({ fullScreen = false }: ArtCanvasProps) => {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [canvas, symMode, bgColor, toast, fullScreen]);
+  }, [canvas, symMode, bgColor, toast, fullScreen, isMounted]);
 
   // Handle brush selection
   const handleBrushSelect = useCallback((brushType: string) => {
-    if (!canvas) return;
+    if (!canvas || !isMounted) return;
     
     setCurrentBrush(brushType);
     canvas.isDrawingMode = true;
@@ -186,7 +212,7 @@ const ArtCanvas = ({ fullScreen = false }: ArtCanvasProps) => {
       default:
         canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
     }
-  }, [canvas, brushSize, brushColor]);
+  }, [canvas, brushSize, brushColor, isMounted]);
 
   // Handle brush size change
   const handleBrushSizeChange = useCallback((newSize: number) => {
@@ -198,6 +224,8 @@ const ArtCanvas = ({ fullScreen = false }: ArtCanvasProps) => {
 
   // Handle brush color change
   const handleColorChange = useCallback((color: string) => {
+    if (!isMounted) return;
+    
     setBrushColor(color);
     if (canvas && canvas.freeDrawingBrush) {
       canvas.freeDrawingBrush.color = color;
@@ -215,20 +243,24 @@ const ArtCanvas = ({ fullScreen = false }: ArtCanvasProps) => {
         canvas.freeDrawingBrush.width = brushSize * 4;
       }
     }
-  }, [canvas, currentBrush, brushSize]);
+  }, [canvas, currentBrush, brushSize, isMounted]);
 
   // Handle background color change
   const handleBgColorChange = useCallback((color: string) => {
+    if (!isMounted) return;
+    
     setBgColor(color);
     if (canvas) {
       canvas.backgroundColor = color;
       canvas.renderAll();
     }
-  }, [canvas]);
+  }, [canvas, isMounted]);
 
   // Handle undo/redo
   const handleUndo = useCallback(() => {
-    if (canvas && undoStack.length > 0) {
+    if (!canvas || !isMounted) return;
+    
+    if (undoStack.length > 0) {
       const currentState = [...undoStack[undoStack.length - 1]];
       const newUndoStack = undoStack.slice(0, -1);
       
@@ -245,10 +277,12 @@ const ArtCanvas = ({ fullScreen = false }: ArtCanvasProps) => {
       canvas.renderAll();
       sonnerToast.info("Undo successful");
     }
-  }, [canvas, undoStack]);
+  }, [canvas, undoStack, isMounted]);
 
   const handleRedo = useCallback(() => {
-    if (canvas && redoStack.length > 0) {
+    if (!canvas || !isMounted) return;
+    
+    if (redoStack.length > 0) {
       const nextState = redoStack[redoStack.length - 1];
       const newRedoStack = redoStack.slice(0, -1);
       
@@ -262,70 +296,80 @@ const ArtCanvas = ({ fullScreen = false }: ArtCanvasProps) => {
       canvas.renderAll();
       sonnerToast.info("Redo successful");
     }
-  }, [canvas, redoStack]);
+  }, [canvas, redoStack, isMounted]);
 
   // Handle export
   const handleExport = useCallback(() => {
-    if (!canvas) return;
+    if (!canvas || !isMounted) return;
     
-    const dataURL = canvas.toDataURL({
-      format: 'png',
-      quality: 1
-    });
-    
-    const link = document.createElement('a');
-    link.download = `artflow-creation-${new Date().toISOString().slice(0, 10)}.png`;
-    link.href = dataURL;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    toast({
-      title: "Artwork Exported!",
-      description: "Your creation has been downloaded successfully.",
-    });
-    sonnerToast.success("Artwork exported successfully!");
-  }, [canvas, toast]);
+    try {
+      const dataURL = canvas.toDataURL({
+        format: 'png',
+        quality: 1
+      });
+      
+      const link = document.createElement('a');
+      link.download = `artflow-creation-${new Date().toISOString().slice(0, 10)}.png`;
+      link.href = dataURL;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      toast({
+        title: "Artwork Exported!",
+        description: "Your creation has been downloaded successfully.",
+      });
+      sonnerToast.success("Artwork exported successfully!");
+    } catch (error) {
+      console.error("Export error:", error);
+      sonnerToast.error("Failed to export artwork");
+    }
+  }, [canvas, toast, isMounted]);
 
   // Handle effects
   const applyEffect = useCallback((effect: string) => {
-    if (!canvas) return;
+    if (!canvas || !isMounted) return;
     
     setCurrentEffect(effect);
     
-    switch(effect) {
-      case "grayscale":
-        canvas.getObjects().forEach(obj => {
-          if (obj instanceof fabric.Path) {
-            // Apply grayscale filter
-            obj.set('stroke', obj.stroke && typeof obj.stroke === 'string' ? convertToGrayscale(obj.stroke) : obj.stroke);
-          }
-        });
-        canvas.renderAll();
-        sonnerToast.success("Grayscale effect applied");
-        break;
-      case "blur":
-        // Apply blur effect to canvas
-        sonnerToast.success("Blur effect applied");
-        break;
-      case "sepia":
-        canvas.getObjects().forEach(obj => {
-          if (obj instanceof fabric.Path) {
-            // Apply sepia filter
-            obj.set('stroke', obj.stroke && typeof obj.stroke === 'string' ? convertToSepia(obj.stroke) : obj.stroke);
-          }
-        });
-        canvas.renderAll();
-        sonnerToast.success("Sepia effect applied");
-        break;
-      case "none":
-        // Remove effects
-        sonnerToast.info("Effects removed");
-        break;
-      default:
-        break;
+    try {
+      switch(effect) {
+        case "grayscale":
+          canvas.getObjects().forEach(obj => {
+            if (obj instanceof fabric.Path) {
+              // Apply grayscale filter
+              obj.set('stroke', obj.stroke && typeof obj.stroke === 'string' ? convertToGrayscale(obj.stroke) : obj.stroke);
+            }
+          });
+          canvas.renderAll();
+          sonnerToast.success("Grayscale effect applied");
+          break;
+        case "blur":
+          // Apply blur effect to canvas
+          sonnerToast.success("Blur effect applied");
+          break;
+        case "sepia":
+          canvas.getObjects().forEach(obj => {
+            if (obj instanceof fabric.Path) {
+              // Apply sepia filter
+              obj.set('stroke', obj.stroke && typeof obj.stroke === 'string' ? convertToSepia(obj.stroke) : obj.stroke);
+            }
+          });
+          canvas.renderAll();
+          sonnerToast.success("Sepia effect applied");
+          break;
+        case "none":
+          // Remove effects
+          sonnerToast.info("Effects removed");
+          break;
+        default:
+          break;
+      }
+    } catch (error) {
+      console.error("Effect application error:", error);
+      sonnerToast.error("Failed to apply effect");
     }
-  }, [canvas]);
+  }, [canvas, isMounted]);
 
   // Helper function to convert color to grayscale
   const convertToGrayscale = (color: string) => {
@@ -376,7 +420,9 @@ const ArtCanvas = ({ fullScreen = false }: ArtCanvasProps) => {
 
   // Add grid to canvas
   useEffect(() => {
-    if (canvas) {
+    if (!canvas || !isMounted) return;
+    
+    try {
       // Clear existing grid
       const existingGrid = canvas.getObjects().filter(obj => obj.data?.type === 'grid');
       existingGrid.forEach(obj => canvas.remove(obj));
@@ -415,14 +461,24 @@ const ArtCanvas = ({ fullScreen = false }: ArtCanvasProps) => {
       }
       
       canvas.renderAll();
+    } catch (error) {
+      console.error("Grid rendering error:", error);
     }
-  }, [canvas, showGrid]);
+  }, [canvas, showGrid, isMounted]);
 
   // Animation variants for floating toolbar
   const toolbarVariants = {
     hidden: { opacity: 0, y: 20 },
     visible: { opacity: 1, y: 0, transition: { duration: 0.5 } }
   };
+
+  if (!isMounted) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="w-12 h-12 rounded-full border-4 border-t-purple-500 border-r-transparent border-b-transparent border-l-transparent animate-spin"></div>
+      </div>
+    );
+  }
 
   return (
     <motion.div 
@@ -647,8 +703,6 @@ const ArtCanvas = ({ fullScreen = false }: ArtCanvasProps) => {
               <Palette size={16} />
             </Button>
           </div>
-          
-          {/* Removed zoom controls */}
         </motion.div>
         
         <div className={cn(
@@ -662,8 +716,6 @@ const ArtCanvas = ({ fullScreen = false }: ArtCanvasProps) => {
             height={canvasHeight}
             onCanvasCreated={handleCanvasCreated}
           />
-          
-          {/* Removed floating controls for Full Screen Mode that included zoom */}
         </div>
       </div>
     </motion.div>
