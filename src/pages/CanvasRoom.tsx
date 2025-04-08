@@ -4,7 +4,7 @@ import { useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import ArtCanvas from '@/components/ArtCanvas';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Share2 } from 'lucide-react';
+import { ArrowLeft, Share2, Download, Undo, Redo } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -16,6 +16,7 @@ const CanvasRoom = () => {
   useEffect(() => {
     // Set dark mode for canvas room
     document.body.classList.add('dark-theme');
+    document.body.style.overflow = 'hidden';
     
     // Simulate loading delay for animation
     const timer = setTimeout(() => {
@@ -25,6 +26,7 @@ const CanvasRoom = () => {
     return () => {
       clearTimeout(timer);
       document.body.classList.remove('dark-theme');
+      document.body.style.overflow = '';
     };
   }, []);
 
@@ -34,8 +36,26 @@ const CanvasRoom = () => {
       .catch(() => toast.error("Failed to copy link"));
   };
 
+  const handleDownload = () => {
+    try {
+      const canvas = document.querySelector('canvas');
+      if (canvas) {
+        const link = document.createElement('a');
+        link.download = `artflow-${id?.slice(0, 8)}-${Date.now()}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        toast.success("Canvas downloaded!");
+      } else {
+        toast.error("Canvas not found!");
+      }
+    } catch (error) {
+      console.error("Download error:", error);
+      toast.error("Failed to download canvas");
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-black text-white">
+    <div className="min-h-screen h-screen w-screen overflow-hidden bg-gradient-to-br from-gray-900 to-black text-white">
       <div className="fixed top-0 left-0 w-full bg-black/30 backdrop-blur-sm z-10">
         <div className="container mx-auto px-4 py-2 flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -47,16 +67,32 @@ const CanvasRoom = () => {
             <h1 className="text-xl font-bold">Canvas Room: {id?.slice(0, 8)}</h1>
           </div>
           
-          <Button onClick={handleShareRoom} variant="outline" className="gap-1 border-white/20 bg-white/5 hover:bg-white/10">
-            <Share2 size={16} />
-            <span className="hidden md:inline">Share Room</span>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button 
+              onClick={handleDownload} 
+              variant="outline" 
+              size="sm" 
+              className="gap-1 border-white/20 bg-white/5 hover:bg-white/10"
+            >
+              <Download size={16} />
+              <span className="hidden md:inline">Download</span>
+            </Button>
+            <Button 
+              onClick={handleShareRoom} 
+              variant="outline" 
+              size="sm" 
+              className="gap-1 border-white/20 bg-white/5 hover:bg-white/10"
+            >
+              <Share2 size={16} />
+              <span className="hidden md:inline">Share</span>
+            </Button>
+          </div>
         </div>
       </div>
 
       <motion.div 
         ref={canvasContainerRef}
-        className="container mx-auto py-20 px-0 h-[calc(100vh-80px)]"
+        className="h-[calc(100vh-60px)] w-full mt-[60px]"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.6 }}
