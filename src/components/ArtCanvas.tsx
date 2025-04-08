@@ -51,7 +51,6 @@ const ArtCanvas = ({ fullScreen = false }: ArtCanvasProps) => {
   const [undoStack, setUndoStack] = useState<fabric.Object[][]>([]);
   const [redoStack, setRedoStack] = useState<fabric.Object[][]>([]);
   const [theme, setTheme] = useState("light");
-  const [canvasZoom, setCanvasZoom] = useState(100);
   const [showGrid, setShowGrid] = useState(false);
   const [symMode, setSymMode] = useState("none");
   const [showEffectsPanel, setShowEffectsPanel] = useState(false);
@@ -90,14 +89,6 @@ const ArtCanvas = ({ fullScreen = false }: ArtCanvasProps) => {
       }
       else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
         handleRedo();
-        e.preventDefault();
-      }
-      else if ((e.ctrlKey || e.metaKey) && e.key === '+') {
-        handleZoomIn();
-        e.preventDefault();
-      }
-      else if ((e.ctrlKey || e.metaKey) && e.key === '-') {
-        handleZoomOut();
         e.preventDefault();
       }
       else if (e.key === 'b') {
@@ -272,33 +263,6 @@ const ArtCanvas = ({ fullScreen = false }: ArtCanvasProps) => {
       sonnerToast.info("Redo successful");
     }
   }, [canvas, redoStack]);
-
-  // Handle zoom
-  const handleZoomIn = useCallback(() => {
-    if (canvas && canvasZoom < 200) {
-      const newZoom = Math.min(canvasZoom + 10, 200);
-      setCanvasZoom(newZoom);
-      canvas.setZoom(newZoom / 100);
-      canvas.renderAll();
-    }
-  }, [canvas, canvasZoom]);
-
-  const handleZoomOut = useCallback(() => {
-    if (canvas && canvasZoom > 50) {
-      const newZoom = Math.max(canvasZoom - 10, 50);
-      setCanvasZoom(newZoom);
-      canvas.setZoom(newZoom / 100);
-      canvas.renderAll();
-    }
-  }, [canvas, canvasZoom]);
-
-  const handleZoomReset = useCallback(() => {
-    if (canvas) {
-      setCanvasZoom(100);
-      canvas.setZoom(1);
-      canvas.renderAll();
-    }
-  }, [canvas]);
 
   // Handle export
   const handleExport = useCallback(() => {
@@ -684,23 +648,7 @@ const ArtCanvas = ({ fullScreen = false }: ArtCanvasProps) => {
             </Button>
           </div>
           
-          {/* Zoom controls */}
-          <div className="flex items-center justify-between gap-2 p-2 bg-white/10 backdrop-blur-sm rounded-lg">
-            <Button variant="ghost" size="icon" onClick={handleZoomOut} className="h-8 w-8">
-              <Minus size={16} />
-            </Button>
-            
-            <div className="flex items-center gap-1">
-              <span className="text-xs">{canvasZoom}%</span>
-              <Button variant="ghost" size="sm" onClick={handleZoomReset} className="h-6 px-2 py-0">
-                <RotateCcw size={12} />
-              </Button>
-            </div>
-            
-            <Button variant="ghost" size="icon" onClick={handleZoomIn} className="h-8 w-8">
-              <Plus size={16} />
-            </Button>
-          </div>
+          {/* Removed zoom controls */}
         </motion.div>
         
         <div className={cn(
@@ -713,40 +661,9 @@ const ArtCanvas = ({ fullScreen = false }: ArtCanvasProps) => {
             width={canvasWidth}
             height={canvasHeight}
             onCanvasCreated={handleCanvasCreated}
-            zoom={canvasZoom / 100}
           />
           
-          {/* Floating Controls for Full Screen Mode */}
-          {fullScreen && (
-            <AnimatePresence>
-              <motion.div 
-                className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-2 p-2 rounded-full bg-black/40 backdrop-blur-md border border-white/10"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 20 }}
-                transition={{ duration: 0.3 }}
-              >
-                <Button variant="ghost" size="icon" onClick={handleUndo} className="h-8 w-8 text-white hover:bg-white/20">
-                  <UndoIcon size={16} />
-                </Button>
-                <Button variant="ghost" size="icon" onClick={handleRedo} className="h-8 w-8 text-white hover:bg-white/20">
-                  <RedoIcon size={16} />
-                </Button>
-                <div className="h-8 w-px bg-white/20" />
-                <Button variant="ghost" size="icon" onClick={handleZoomOut} className="h-8 w-8 text-white hover:bg-white/20">
-                  <Minus size={16} />
-                </Button>
-                <span className="text-white/90 text-xs">{canvasZoom}%</span>
-                <Button variant="ghost" size="icon" onClick={handleZoomIn} className="h-8 w-8 text-white hover:bg-white/20">
-                  <Plus size={16} />
-                </Button>
-                <div className="h-8 w-px bg-white/20" />
-                <Button variant="ghost" size="icon" onClick={handleExport} className="h-8 w-8 text-white hover:bg-white/20">
-                  <Download size={16} />
-                </Button>
-              </motion.div>
-            </AnimatePresence>
-          )}
+          {/* Removed floating controls for Full Screen Mode that included zoom */}
         </div>
       </div>
     </motion.div>

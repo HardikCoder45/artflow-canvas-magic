@@ -99,16 +99,7 @@ const HeroBackground = () => {
     
     // Animation loop with additional safety checks
     const animate = () => {
-      if (!isCanvasReady) return;
-      
-      // Safety check: ensure canvas and context still exist
-      if (!canvasRef.current || !ctx) {
-        if (animationFrameRef.current) {
-          cancelAnimationFrame(animationFrameRef.current);
-          animationFrameRef.current = null;
-        }
-        return;
-      }
+      if (!isCanvasReady || !canvas || !ctx) return;
       
       try {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -128,7 +119,10 @@ const HeroBackground = () => {
         
         connectParticles();
         
-        animationFrameRef.current = requestAnimationFrame(animate);
+        // Only request next animation frame if component is still mounted
+        if (isCanvasReady) {
+          animationFrameRef.current = requestAnimationFrame(animate);
+        }
       } catch (error) {
         console.error("Animation error:", error);
         if (animationFrameRef.current) {

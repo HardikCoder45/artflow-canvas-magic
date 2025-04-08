@@ -1,5 +1,5 @@
 
-import { useEffect, useRef, useState, forwardRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fabric } from "fabric";
 import { useToast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
@@ -8,11 +8,10 @@ interface CanvasProps {
   className?: string;
   width?: number;
   height?: number;
-  zoom?: number;
   onCanvasCreated?: (canvas: fabric.Canvas) => void;
 }
 
-const Canvas = ({ className, width = 800, height = 600, zoom = 1, onCanvasCreated }: CanvasProps) => {
+const Canvas = ({ className, width = 800, height = 600, onCanvasCreated }: CanvasProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fabricCanvasRef = useRef<fabric.Canvas | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -133,26 +132,8 @@ const Canvas = ({ className, width = 800, height = 600, zoom = 1, onCanvasCreate
           }
         });
         
-        // Handle mouse wheel zoom
-        fabricCanvas.on('mouse:wheel', (opt) => {
-          const delta = opt.e.deltaY;
-          let zoom = fabricCanvas.getZoom();
-          zoom *= 0.999 ** delta;
-          if (zoom > 20) zoom = 20;
-          if (zoom < 0.01) zoom = 0.01;
-          
-          // Get the position of the mouse relative to the canvas
-          const point = new fabric.Point(
-            opt.e.offsetX, 
-            opt.e.offsetY
-          );
-          
-          // Zoom to the point where the mouse is
-          fabricCanvas.zoomToPoint(point, zoom);
-          
-          opt.e.preventDefault();
-          opt.e.stopPropagation();
-        });
+        // Remove mouse wheel zoom handler to fix the clearRect error
+        // Removed: fabricCanvas.on('mouse:wheel', ...)
         
         setCanvas(fabricCanvas);
         setIsInitialized(true);
@@ -194,18 +175,6 @@ const Canvas = ({ className, width = 800, height = 600, zoom = 1, onCanvasCreate
       setCanvas(null);
     };
   }, [width, height, toast, onCanvasCreated]);
-
-  // Apply zoom when it changes and canvas is ready
-  useEffect(() => {
-    if (canvas && isInitialized && zoom) {
-      try {
-        canvas.setZoom(zoom);
-        canvas.renderAll();
-      } catch (error) {
-        console.error("Error applying zoom:", error);
-      }
-    }
-  }, [canvas, zoom, isInitialized]);
 
   // Handle keyboard shortcuts
   useEffect(() => {
