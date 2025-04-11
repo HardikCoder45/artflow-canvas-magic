@@ -1,6 +1,5 @@
-
-import { useState } from 'react';
-import { Button } from "@/components/ui/button";
+import React, { useState, useRef, useEffect } from 'react';
+import { Button, Icon, Tooltip, Divider } from '../ui';
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
@@ -26,20 +25,44 @@ interface ToolbarProps {
   brushColor: string;
   bgColor?: string;
   fullScreen?: boolean;
+  activeTool: string;
+  onToolChange: (tool: string) => void;
+  brushWidth: number;
+  onWidthChange: (width: number) => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  isToolPersistent: boolean;
+  onToggleToolPersistence: () => void;
 }
 
-const Toolbar = ({ 
-  onBrushSelect, 
-  onBrushSizeChange, 
+const Toolbar: React.FC<ToolbarProps> = ({
+  onBrushSelect,
+  onBrushSizeChange,
   onColorChange,
   onBgColorChange,
   currentBrush,
   brushSize,
   brushColor,
   bgColor = "#ffffff",
-  fullScreen = false
-}: ToolbarProps) => {
+  fullScreen = false,
+  activeTool,
+  onToolChange,
+  brushWidth,
+  onWidthChange,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
+  isToolPersistent,
+  onToggleToolPersistence
+}) => {
   const [activeTab, setActiveTab] = useState("brushes");
+  const [position, setPosition] = useState({ x: 20, y: 20 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const toolbarRef = useRef<HTMLDivElement>(null);
 
   // Extended color palette
   const colorPalette = [
@@ -68,13 +91,86 @@ const Toolbar = ({
     { id: "eraser", name: "Eraser", icon: <Eraser className="w-4 h-4" /> }
   ];
 
+  // Handle mouse down on the toolbar header
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (toolbarRef.current) {
+      const rect = toolbarRef.current.getBoundingClientRect();
+      setDragOffset({
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      });
+      setIsDragging(true);
+    }
+  };
+
+  // Handle mouse move for dragging
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDragging) {
+        setPosition({
+          x: e.clientX - dragOffset.x,
+          y: e.clientY - dragOffset.y
+        });
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, dragOffset]);
+
   return (
-    <motion.div 
-      className="bg-card rounded-lg shadow-lg p-4 h-full flex flex-col"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.5 }}
+    <div 
+      ref={toolbarRef}
+      className="toolbar" 
+      style={{
+        position: 'absolute',
+        left: `${position.x}px`,
+        top: `${position.y}px`,
+        background: 'white',
+        borderRadius: '8px',
+        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+        padding: '12px',
+        zIndex: 1000,
+        userSelect: 'none'
+      }}
     >
+      <div 
+        className="toolbar-header"
+        style={{
+          padding: '6px',
+          cursor: 'move',
+          background: '#f3f4f6',
+          borderRadius: '6px 6px 0 0',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '8px'
+        }}
+        onMouseDown={handleMouseDown}
+      >
+        <span>Tools</span>
+        <Tooltip content={isToolPersistent ? "Tool stays selected" : "Tool resets after use"}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onToggleToolPersistence}
+          >
+            <Icon name={isToolPersistent ? "pin" : "pin-off"} />
+          </Button>
+        </Tooltip>
+      </div>
+
       <Tabs defaultValue="brushes" className="w-full" onValueChange={setActiveTab}>
         <TabsList className="grid grid-cols-2 mb-4">
           <TabsTrigger value="brushes">Brushes</TabsTrigger>
@@ -222,7 +318,7 @@ const Toolbar = ({
           </div>
         </TabsContent>
       </Tabs>
-    </motion.div>
+    </div>
   );
 };
 

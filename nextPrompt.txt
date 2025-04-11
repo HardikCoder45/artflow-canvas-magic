@@ -1,0 +1,4 @@
+there are many effects, many tools and many things that are not yet working in the canvas make sure all of them works perfectly, and all things applies equally and 100% accurately, 
+make the tool bar moving, so that i can be smoothly move from here to there, make the canvas move by default keep the mouse in the canvas from which we can move the mouse here and there and the brush comes when when we press the button for it 
+I want do not want any of th e toast remove all the toast 
+i want a dotted grid on the canvas to give it a look add the different shapes in tool bar, whose colour can also be editable and each and every tool works perfectly and ewually we can  move the elements from the mouse in the canvas , and many more things add the scale and everything that is there is the tool bar make them all properly work with 100% efficency  do make sure everything works perfectly all tools are working , you have to make this like a figma jamboard 

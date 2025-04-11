@@ -1,39 +1,34 @@
-
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import ArtCanvas from '@/components/ArtCanvas';
+import { EnhancedArtCanvas } from '@/components';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Share2, Download, Undo, Redo } from 'lucide-react';
+import { ArrowLeft, Share2, Download } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 
 const CanvasRoom = () => {
   const { id } = useParams<{ id: string }>();
-  const [isLoaded, setIsLoaded] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isMounted, setIsMounted] = useState(false);
-  const canvasContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    // Set component as mounted
     setIsMounted(true);
     
     // Set dark mode for canvas room
     document.body.classList.add('dark-theme');
     document.body.style.overflow = 'hidden';
     
-    // Simulate loading delay for animation
-    const timer = setTimeout(() => {
-      if (isMounted) {
-        setIsLoaded(true);
-      }
-    }, 600);
+    // Short loading delay to ensure DOM is ready
+    const loadingTimer = setTimeout(() => {
+      setIsLoading(false);
+    }, 500);
     
     return () => {
-      clearTimeout(timer);
       setIsMounted(false);
       document.body.classList.remove('dark-theme');
       document.body.style.overflow = '';
+      clearTimeout(loadingTimer);
     };
   }, []);
 
@@ -80,6 +75,7 @@ const CanvasRoom = () => {
               variant="outline" 
               size="sm" 
               className="gap-1 border-white/20 bg-white/5 hover:bg-white/10"
+              disabled={isLoading}
             >
               <Download size={16} />
               <span className="hidden md:inline">Download</span>
@@ -98,15 +94,14 @@ const CanvasRoom = () => {
       </div>
 
       <motion.div 
-        ref={canvasContainerRef}
         className="h-[calc(100vh-60px)] w-full mt-[60px]"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.6 }}
       >
-        {isMounted && isLoaded ? (
+        {!isLoading ? (
           <div className="w-full h-full">
-            <ArtCanvas key={`canvas-${id}`} fullScreen={true} />
+            <EnhancedArtCanvas fullScreen={true} />
           </div>
         ) : (
           <div className="flex items-center justify-center h-full">

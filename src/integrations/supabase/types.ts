@@ -9,6 +9,91 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      canvas_sessions: {
+        Row: {
+          id: string
+          created_at: string | null
+          created_by: string
+          name: string | null
+          canvas_state: Json
+          is_active: boolean | null
+          last_modified: string | null
+          max_participants: number | null
+        }
+        Insert: {
+          id: string
+          created_at?: string | null
+          created_by: string
+          name?: string | null
+          canvas_state: Json
+          is_active?: boolean | null
+          last_modified?: string | null
+          max_participants?: number | null
+        }
+        Update: {
+          id?: string
+          created_at?: string | null
+          created_by?: string
+          name?: string | null
+          canvas_state?: Json
+          is_active?: boolean | null
+          last_modified?: string | null
+          max_participants?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "canvas_sessions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      room_participants: {
+        Row: {
+          id: string
+          is_moderator: boolean | null
+          is_speaking: boolean | null
+          joined_at: string | null
+          room_id: string
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          is_moderator?: boolean | null
+          is_speaking?: boolean | null
+          joined_at?: string | null
+          room_id: string
+          user_id: string
+        }
+        Update: {
+          id?: string
+          is_moderator?: boolean | null
+          is_speaking?: boolean | null
+          joined_at?: string | null
+          room_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_participants_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
+
+export type Database = {
+  public: {
+    Tables: {
       room_participants: {
         Row: {
           id: string
