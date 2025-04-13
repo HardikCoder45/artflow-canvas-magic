@@ -295,23 +295,34 @@ const Index = () => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.2 }}
             >
-              <Button variant="ghost" className="text-white hover:text-purple-400 hover:bg-white/5">
+              <Button variant="ghost" className="text-white hover:text-purple-400 hover:bg-white/5 relative group" onClick={() => navigate("/about")}>
                 About
+                <motion.span 
+                  className="absolute -bottom-1 left-0 w-0 h-0.5 bg-purple-400"
+                  whileHover={{ width: "100%" }}
+                  transition={{ duration: 0.3 }}
+                />
               </Button>
-              <Button variant="ghost" className="text-white hover:text-purple-400 hover:bg-white/5">
+              <Button variant="ghost" className="text-white hover:text-purple-400 hover:bg-white/5 relative group" onClick={() => navigate("/gallery")}>
+                <div className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-purple-500 animate-pulse" />
                 Gallery
+                <motion.span 
+                  className="absolute -bottom-1 left-0 w-0 h-0.5 bg-purple-400"
+                  whileHover={{ width: "100%" }}
+                  transition={{ duration: 0.3 }}
+                />
               </Button>
               <Button 
                 variant="outline" 
                 className="hidden sm:flex border-purple-400 text-purple-400 hover:bg-purple-400/10 hover:text-white"
-                onClick={() => setShowLoginModal(true)}
+                onClick={() => navigate("/auth")}
               >
                 <LogIn className="w-4 h-4 mr-2" />
                 Login
               </Button>
               <Button 
                 className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
-                onClick={() => setShowSignupModal(true)}
+                onClick={() => navigate("/auth")}
               >
                 Sign Up
               </Button>
