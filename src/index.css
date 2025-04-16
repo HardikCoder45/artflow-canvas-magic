@@ -3,37 +3,41 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    --background: 253 16% 14%;
-    --foreground: 0 0% 98%;
-
-    --card: 256 27% 92%;
+  :root, 
+  .light-theme {
+    --background: 0 0% 100%;
+    --foreground: 253 16% 14%;
+    
+    --card: 256 27% 98%;
     --card-foreground: 253 16% 14%;
-
+    
     --popover: 0 0% 100%;
     --popover-foreground: 253 16% 14%;
-
+    
     --primary: 255 85% 74%;
-    --primary-foreground: 253 16% 14%;
-
+    --primary-foreground: 0 0% 98%;
+    
     --secondary: 255 33% 54%;
     --secondary-foreground: 0 0% 98%;
-
+    
     --muted: 256 27% 92%;
     --muted-foreground: 256 9% 60%;
-
+    
     --accent: 24 94% 53%;
     --accent-foreground: 0 0% 98%;
-
+    
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-
-    --border: 255 33% 85%;
-    --input: 255 33% 85%;
+    
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
     --ring: 255 85% 74%;
-
+    
     --radius: 0.75rem;
-
+    
+    --canvas-bg: 0 0% 98%;
+    --canvas-grid: 214 32% 70%;
+    
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 240 5.3% 26.1%;
     --sidebar-primary: 240 5.9% 10%;
@@ -42,6 +46,39 @@
     --sidebar-accent-foreground: 240 5.9% 10%;
     --sidebar-border: 220 13% 91%;
     --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+  
+  .dark-theme {
+    --background: 253 16% 14%;
+    --foreground: 0 0% 98%;
+    
+    --card: 255 15% 15%;
+    --card-foreground: 0 0% 98%;
+    
+    --popover: 255 15% 15%;
+    --popover-foreground: 0 0% 98%;
+    
+    --primary: 255 85% 74%;
+    --primary-foreground: 253 16% 14%;
+    
+    --secondary: 255 33% 54%;
+    --secondary-foreground: 0 0% 98%;
+    
+    --muted: 255 15% 25%;
+    --muted-foreground: 256 9% 70%;
+    
+    --accent: 24 94% 53%;
+    --accent-foreground: 0 0% 98%;
+    
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    
+    --border: 256 9% 25%;
+    --input: 256 9% 25%;
+    --ring: 255 85% 74%;
+    
+    --canvas-bg: 255 10% 10%;
+    --canvas-grid: 256 9% 25%;
   }
 }
 
@@ -66,8 +103,8 @@
   /* Grid pattern for backgrounds */
   .grid-background {
     background-image: 
-      linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+      linear-gradient(to right, rgba(var(--canvas-grid), 0.1) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(var(--canvas-grid), 0.1) 1px, transparent 1px);
     background-size: 20px 20px;
   }
 }

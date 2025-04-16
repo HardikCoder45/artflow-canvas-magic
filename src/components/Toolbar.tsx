@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Button, Icon, Tooltip, Divider } from '../ui';
+import { Button } from '@/components/ui/button';
+import { Tooltip } from '@radix-ui/react-tooltip';
+import { Divide as Divider } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 

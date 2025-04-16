@@ -1,6 +1,18 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, useLayoutEffect } from "react";
 import { fabric } from "fabric";
 import { cn } from "@/lib/utils";
+
+// Create theme variables with defaults to avoid context dependency
+const THEME_COLORS = {
+  dark: {
+    background: "#1a1a1a",
+    grid: "rgba(255, 255, 255, 0.3)"
+  },
+  light: {
+    background: "#f8f8f8", 
+    grid: "rgba(0, 0, 0, 0.2)"
+  }
+};
 
 interface CanvasProps {
   className?: string;
@@ -10,478 +22,399 @@ interface CanvasProps {
   showGrid?: boolean;
   gridSize?: number;
   bgColor?: string;
+  theme?: "light" | "dark";
 }
 
 const Canvas = ({ 
   className, 
-  width = 800, 
-  height = 600, 
+  width: propWidth, 
+  height: propHeight, 
   onCanvasCreated,
   showGrid = true,
   gridSize = 20,
-  bgColor = "#1a1a1a"
+  bgColor,
+  theme = "dark"
 }: CanvasProps) => {
+  // Force fullscreen dimensions by default 
+  const [width, setWidth] = useState(window.innerWidth);
+  const [height, setHeight] = useState(window.innerHeight);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<fabric.Canvas | null>(null);
+  const canvasElementRef = useRef<HTMLCanvasElement | null>(null);
   const isPanning = useRef<boolean>(false);
   const lastPosRef = useRef<{ x: number, y: number } | null>(null);
   const isAltKeyPressed = useRef<boolean>(false);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [hasError, setHasError] = useState(false);
+  const gridRef = useRef<fabric.Group | null>(null);
+  
+  // Use theme colors directly, avoiding React context
+  const themeColors = THEME_COLORS[theme];
+  const effectiveBgColor = bgColor || themeColors.background;
+  const gridColor = themeColors.grid;
 
-  useEffect(() => {
-    let handleKeyDown: (e: KeyboardEvent) => void;
-    let handleKeyUp: (e: KeyboardEvent) => void;
-    let resizeObserver: ResizeObserver;
+  // Measure container size to set canvas dimensions
+  const updateCanvasDimensions = () => {
+    if (!canvasContainerRef.current) return;
+    
+    const container = canvasContainerRef.current;
+    const computedStyle = window.getComputedStyle(container);
+    
+    // Account for padding/borders when calculating available space
+    const paddingX = parseFloat(computedStyle.paddingLeft) + parseFloat(computedStyle.paddingRight);
+    const paddingY = parseFloat(computedStyle.paddingTop) + parseFloat(computedStyle.paddingBottom);
+    const borderX = parseFloat(computedStyle.borderLeftWidth) + parseFloat(computedStyle.borderRightWidth);
+    const borderY = parseFloat(computedStyle.borderTopWidth) + parseFloat(computedStyle.borderBottomWidth);
+    
+    // Get container's client dimensions
+    const containerWidth = container.clientWidth - paddingX - borderX;
+    const containerHeight = container.clientHeight - paddingY - borderY;
+    
+    // Use props if provided, otherwise use container dimensions
+    const newWidth = propWidth || containerWidth || window.innerWidth;
+    const newHeight = propHeight || containerHeight || window.innerHeight;
+    
+    setWidth(newWidth);
+    setHeight(newHeight);
+    
+    // Also update the canvas if it already exists
+    if (canvasRef.current && isInitialized) {
+      canvasRef.current.setWidth(newWidth);
+      canvasRef.current.setHeight(newHeight);
+      canvasRef.current.calcOffset();
+      canvasRef.current.renderAll();
+      
+      // Update grid to match new dimensions
+      if (showGrid) {
+        createGrid(canvasRef.current, gridSize);
+      }
+    }
+  };
 
-    // Create a new canvas instance
-    const initCanvas = () => {
-      // Clean up any existing canvas
+  // Create grid with optimized performance
+  const createGrid = (canvas: fabric.Canvas, size: number) => {
+    if (!canvas || !canvas.getElement()) return;
+    
+    try {
+      // Remove any existing grid first
+      if (gridRef.current) {
+        canvas.remove(gridRef.current);
+        gridRef.current = null;
+      }
+      
+      // Use lines instead of dots for better performance with large canvases
+      const gridLines: fabric.Line[] = [];
+      const canvasWidth = canvas.getWidth();
+      const canvasHeight = canvas.getHeight();
+      
+      // Create vertical lines
+      for (let x = 0; x <= canvasWidth; x += size) {
+        const line = new fabric.Line([x, 0, x, canvasHeight], {
+          stroke: gridColor,
+          strokeWidth: 0.5,
+          selectable: false,
+          evented: false,
+          hoverCursor: 'default'
+        });
+        gridLines.push(line);
+      }
+      
+      // Create horizontal lines
+      for (let y = 0; y <= canvasHeight; y += size) {
+        const line = new fabric.Line([0, y, canvasWidth, y], {
+          stroke: gridColor,
+          strokeWidth: 0.5,
+            selectable: false,
+          evented: false,
+          hoverCursor: 'default'
+        });
+        gridLines.push(line);
+      }
+      
+      // Group all lines together
+      const gridGroup = new fabric.Group(gridLines, { 
+        selectable: false, 
+        evented: false,
+        hoverCursor: 'default',
+        data: { type: 'grid' },
+        objectCaching: false
+      });
+      
+      canvas.add(gridGroup);
+      gridGroup.sendToBack();
+      gridRef.current = gridGroup;
+      
+      // Make all grid elements non-erasable
+      gridLines.forEach(line => {
+        line.erasable = false;
+      });
+      
+      canvas.renderAll();
+    } catch (error) {
+      console.error("Error in grid creation:", error);
+    }
+  };
+
+  // Properly dispose of canvas and clean up resources
+  const disposeCanvas = () => {
       if (canvasRef.current) {
         try {
           const canvas = canvasRef.current;
-          canvas.off(); // Remove event listeners first
+          canvas.off(); 
           canvas.clear();
           canvas.dispose();
-        } catch (error) {
-          console.error("Error disposing canvas:", error);
-        }
         canvasRef.current = null;
+      } catch (error) {
+        console.error("Error disposing canvas:", error);
       }
+    }
+  };
 
-      if (!canvasContainerRef.current) return;
+  // Initialize the canvas in a more reliable way
+  const initCanvas = () => {
+    console.log("Initializing canvas with FULL dimensions:", window.innerWidth, "x", window.innerHeight);
+    
+    // Reset state and clean up any existing canvas
+    setHasError(false);
+    disposeCanvas();
+
+      if (!canvasContainerRef.current) {
+        console.error("Canvas container not found");
+        setHasError(true);
+        return;
+      }
 
       try {
         // Clear the container
         canvasContainerRef.current.innerHTML = '';
 
-        // Create a new canvas element
+      // Create a new canvas element - FORCE fullscreen
         const canvasElement = document.createElement('canvas');
-        canvasElement.width = width;
-        canvasElement.height = height;
-        canvasElement.style.width = "100%";
-        canvasElement.style.height = "100%";
-        canvasElement.id = "fabric-canvas-" + Date.now(); // Add unique ID
+      canvasElementRef.current = canvasElement;
+      canvasElement.width = window.innerWidth;
+      canvasElement.height = window.innerHeight;
+      canvasElement.style.width = "100vw";
+      canvasElement.style.height = "100vh";
+        canvasElement.id = "fabric-canvas-" + Date.now();
         canvasContainerRef.current.appendChild(canvasElement);
 
-        // Initialize fabric canvas
-        const canvas = new fabric.Canvas(canvasElement, {
-          isDrawingMode: false, // Start with selection mode as default
-          backgroundColor: bgColor,
-          width: width,
-          height: height,
+      // Create the Fabric canvas immediately
+      try {
+        const canvasOptions: fabric.ICanvasOptions = {
+          isDrawingMode: false,
+          backgroundColor: effectiveBgColor,
+          width: window.innerWidth,
+          height: window.innerHeight,
           preserveObjectStacking: true,
           selection: true,
           renderOnAddRemove: true,
-          fireRightClick: true,
-          enableRetinaScaling: true, // Important for high-DPI displays
-          imageSmoothingEnabled: true,
-          includeDefaultValues: false, // Better performance
-          defaultCursor: 'default', // Changed to default for better tool context
-          hoverCursor: 'default', // Changed to default to allow tool-specific cursors
-          selectionBorderColor: 'rgba(255, 255, 255, 0.5)',
-          selectionColor: 'rgba(255, 255, 255, 0.1)',
-          selectionLineWidth: 1,
-          centeredScaling: true,
-          centeredRotation: true,
-          stopContextMenu: false, // Allow context menu to be handled by React
-          uniformScaling: false, // Allow non-uniform scaling
-          uniScaleKey: 'shiftKey', // Use shift for uniform scaling
-          statefullCache: true, // Better performance for complex objects
-          stateful: true // Ensure state is maintained between renders
-        });
-        
-        // Set up event handlers
-        handleKeyDown = function(e: KeyboardEvent) {
-          if (e.code === 'Space' && !isPanning.current) {
-            isPanning.current = true;
-            if (canvasRef.current) {
-              canvasRef.current.isDrawingMode = false;
-              canvasRef.current.selection = false;
-              canvasRef.current.defaultCursor = 'grab';
-              // Only set cursor if the element exists
-              const canvasEl = canvasRef.current.getElement();
-              if (canvasEl && canvasEl.style) {
-                canvasEl.style.cursor = 'grab';
-              }
-            }
-          }
-          
-          // Also enable panning with Alt key
-          if (e.key === 'Alt' && !isAltKeyPressed.current) {
-            isAltKeyPressed.current = true;
-            if (canvasRef.current) {
-              canvasRef.current.isDrawingMode = false;
-              canvasRef.current.selection = false;
-              canvasRef.current.defaultCursor = 'grab';
-              // Only set cursor if the element exists
-              const canvasEl = canvasRef.current.getElement();
-              if (canvasEl && canvasEl.style) {
-                canvasEl.style.cursor = 'grab';
-              }
-            }
-          }
+          enableRetinaScaling: true,
+          selectionBorderColor: theme === 'dark' ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.3)',
+          selectionColor: theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+          defaultCursor: 'default',
+          hoverCursor: 'default'
         };
+
+        // Force browser to process the newly added element before creating canvas
+        window.getComputedStyle(canvasElement).getPropertyValue('display');
         
-        handleKeyUp = function(e: KeyboardEvent) {
-          if (e.code === 'Space' && isPanning.current) {
-            isPanning.current = false;
-            if (canvasRef.current) {
-              canvasRef.current.defaultCursor = 'default';
-              // Only set cursor if the element exists
-              const canvasEl = canvasRef.current.getElement();
-              if (canvasEl && canvasEl.style) {
-                canvasEl.style.cursor = 'default';
-              }
-              // Return to previous state based on parent component's needs
-              if (onCanvasCreated) {
-                onCanvasCreated(canvasRef.current);
-              }
-            }
-          }
-          
-          // Handle Alt key release
-          if (e.key === 'Alt' && isAltKeyPressed.current) {
-            isAltKeyPressed.current = false;
-            if (canvasRef.current) {
-              canvasRef.current.defaultCursor = 'default';
-              // Only set cursor if the element exists
-              const canvasEl = canvasRef.current.getElement();
-              if (canvasEl && canvasEl.style) {
-                canvasEl.style.cursor = 'default';
-              }
-              // Return to previous state
-              if (onCanvasCreated) {
-                onCanvasCreated(canvasRef.current);
-              }
-            }
-          }
-        };
-        
-        window.addEventListener('keydown', handleKeyDown);
-        window.addEventListener('keyup', handleKeyUp);
-
-        // Handle mouse events for panning and object manipulation
-        canvas.on('mouse:down', function(opt) {
-          if (isPanning.current || isAltKeyPressed.current || opt.e.button === 1) { // Middle mouse or Space+mouse or Alt+mouse
-            canvas.isDrawingMode = false;
-            canvas.selection = false;
-            canvas.defaultCursor = 'grabbing';
-            
-            // Only set cursor if the element exists
-            const canvasEl = canvas.getElement();
-            if (canvasEl && canvasEl.style) {
-              canvasEl.style.cursor = 'grabbing';
-            }
-            
-            lastPosRef.current = { 
-              x: opt.e.clientX, 
-              y: opt.e.clientY 
-            };
-            opt.e.preventDefault();
-          }
-        });
-
-        canvas.on('mouse:move', function(opt) {
-          if ((isPanning.current || isAltKeyPressed.current || opt.e.button === 1) && lastPosRef.current) {
-            const dx = opt.e.clientX - lastPosRef.current.x;
-            const dy = opt.e.clientY - lastPosRef.current.y;
-            
-            // Pan the canvas
-            const delta = new fabric.Point(dx, dy);
-            canvas.relativePan(delta);
-            
-            // Get current transform
-            const vpt = canvas.viewportTransform;
-            if (!vpt) return;
-            
-            const zoom = canvas.getZoom();
-            const canvasEl = canvas.getElement();
-            const width = canvasEl?.width || 0;
-            const height = canvasEl?.height || 0;
-            
-            // Calculate boundaries to ensure the canvas remains fully pannable
-            const panBoundary = 0.2; // 20% buffer
-            const zoomFactor = 1 / zoom;
-            
-            // Apply constraints so we can pan to see all parts of the canvas at any zoom level
-            if (vpt[4] > width * zoomFactor * panBoundary) {
-              vpt[4] = width * zoomFactor * panBoundary;
-            } else if (vpt[4] < -width * zoomFactor * (1 - panBoundary)) {
-              vpt[4] = -width * zoomFactor * (1 - panBoundary);
-            }
-            
-            if (vpt[5] > height * zoomFactor * panBoundary) {
-              vpt[5] = height * zoomFactor * panBoundary;
-            } else if (vpt[5] < -height * zoomFactor * (1 - panBoundary)) {
-              vpt[5] = -height * zoomFactor * (1 - panBoundary);
-            }
-            
-            // Apply the updated viewport transform
-            canvas.setViewportTransform(vpt);
-            
-            lastPosRef.current = { 
-              x: opt.e.clientX, 
-              y: opt.e.clientY 
-            };
-            
-            opt.e.preventDefault();
-          }
-        });
-
-        canvas.on('mouse:up', function() {
-          // Only update cursor if we were panning with middle mouse
-          // Space key panning is handled by keyup event
-          if (lastPosRef.current && !isPanning.current && canvasRef.current) {
-            canvasRef.current.defaultCursor = 'default';
-            // Only set cursor if the element exists
-            const canvasEl = canvasRef.current.getElement();
-            if (canvasEl && canvasEl.style) {
-              canvasEl.style.cursor = 'default';
-            }
-            lastPosRef.current = null;
-          }
-          
-          if (lastPosRef.current) {
-            lastPosRef.current = null;
-          }
-        });
-
-        // Fix issue with specific areas not being drawable
-        // Ensure the canvas viewportTransform is properly set
-        canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
-        
-        // Define resize function and observer
-        const resizeCanvas = () => {
-          if (canvasContainerRef.current && canvas) {
-            const containerWidth = canvasContainerRef.current.clientWidth;
-            const containerHeight = canvasContainerRef.current.clientHeight;
-            
-            if (containerWidth > 0 && containerHeight > 0) {
-              canvas.setWidth(containerWidth);
-              canvas.setHeight(containerHeight);
-              canvas.setZoom(canvas.getZoom()); // Maintain zoom level
-              canvas.renderAll();
-              
-              // Recreate grid if needed
-              if (showGrid) {
-                // Remove existing grid
-                const objects = canvas.getObjects();
-                const existingGrid = objects.find(obj => obj.data?.type === 'grid');
-                if (existingGrid) {
-                  canvas.remove(existingGrid);
-                }
-                createGrid(canvas, gridSize);
-              }
-            }
-          }
-        };
-        
-        // Set resize observer to handle window resizing
-        resizeObserver = new ResizeObserver(resizeCanvas);
-        if (canvasContainerRef.current) {
-          resizeObserver.observe(canvasContainerRef.current);
-        }
-
-        // Store reference
+        const canvas = new fabric.Canvas(canvasElement.id, canvasOptions);
         canvasRef.current = canvas;
-        
-        // Force initial render
-        requestAnimationFrame(() => canvas.renderAll());
 
-        // Set up brush for when drawing mode is enabled
-        canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
-        canvas.freeDrawingBrush.width = 5; 
-        canvas.freeDrawingBrush.color = "#ffffff";
-        canvas.freeDrawingBrush.strokeLineCap = 'round';
-        canvas.freeDrawingBrush.strokeLineJoin = 'round';
+        // Fix common Fabric.js errors
+        const patchFabricPrototypes = () => {
+          // Fix hasStateChanged method
+          const originalHasStateChanged = fabric.Object.prototype.hasStateChanged;
+          fabric.Object.prototype.hasStateChanged = function(propertySet) {
+            if (!this || !this.stateProperties) return false;
+            try {
+              return originalHasStateChanged.call(this, propertySet);
+            } catch (e) {
+              console.warn('Error in hasStateChanged', e);
+              return false;
+            }
+          };
+          
+          // Fix isCacheDirty method
+          const originalIsCacheDirty = fabric.Object.prototype.isCacheDirty;
+          fabric.Object.prototype.isCacheDirty = function() {
+            try {
+              return originalIsCacheDirty.call(this);
+            } catch (e) {
+              console.warn('Error in isCacheDirty', e);
+              return true;
+            }
+          };
+        };
         
-        // Create the dotted grid background
+        patchFabricPrototypes();
+        
+        // Create grid and complete initialization in a single frame
         if (showGrid) {
           createGrid(canvas, gridSize);
         }
         
-        // CRUCIAL FIX: After a path is created, immediately make it permanent
-        canvas.on('path:created', function(e) {
-          if (!e.path) return;
-          
-          // Configure new path to stay visible
-          e.path.selectable = true;
-          e.path.evented = true;
-          
-          // This ensures that strokes remain after mouse up
-          requestAnimationFrame(() => {
-            canvas.renderAll();
-            
-            // Notify parent component about the new state with a small delay
-            if (onCanvasCreated) {
-              onCanvasCreated(canvas);
-            }
-          });
-        });
-
-        // Setup mouse wheel for zooming
-        canvas.on('mouse:wheel', function(opt) {
-          const delta = opt.e.deltaY;
-          let zoom = canvas.getZoom();
-          zoom *= 0.999 ** delta;
-          
-          // Limit zoom levels
-          if (zoom > 20) zoom = 20;
-          if (zoom < 0.1) zoom = 0.1;
-          
-          // Calculate point to zoom to
-          const point = new fabric.Point(opt.e.offsetX, opt.e.offsetY);
-          
-          // First pan to position the zoom point at the center of the canvas
-          const vpt = canvas.viewportTransform;
-          if (!vpt) return;
-
-          // Zoom to point
-          canvas.zoomToPoint(point, zoom);
-          
-          // Ensure canvas is fully pannable even at high zoom levels
-          const canvasEl = canvas.getElement();
-          const width = canvasEl?.width || 0;
-          const height = canvasEl?.height || 0;
-
-          // Calculate boundaries to ensure the canvas remains fully pannable
-          const panBoundary = 0.2; // 20% buffer
-          const zoomFactor = 1 / zoom;
-
-          // Apply constraints so we can pan to see all parts of the canvas at any zoom level
-          if (vpt[4] > width * zoomFactor * panBoundary) {
-            vpt[4] = width * zoomFactor * panBoundary;
-          } else if (vpt[4] < -width * zoomFactor * (1 - panBoundary)) {
-            vpt[4] = -width * zoomFactor * (1 - panBoundary);
-          }
-
-          if (vpt[5] > height * zoomFactor * panBoundary) {
-            vpt[5] = height * zoomFactor * panBoundary;
-          } else if (vpt[5] < -height * zoomFactor * (1 - panBoundary)) {
-            vpt[5] = -height * zoomFactor * (1 - panBoundary);
-          }
-          
-          // Apply the updated viewport transform
-          canvas.setViewportTransform(vpt);
-          
-          opt.e.preventDefault();
-          opt.e.stopPropagation();
-        });
-
-        // Initial notification to parent
+        // Finalize initialization
+        setIsInitialized(true);
+        console.log("Canvas created successfully with dimensions:", canvas.width, "x", canvas.height);
+        
+        // Notify parent and broadcast event
         if (onCanvasCreated) {
           onCanvasCreated(canvas);
         }
-      } catch (error) {
-        console.error("Canvas initialization error:", error);
-      }
-    };
 
-    // Try initializing
-    initCanvas();
-
-    // Clean up event listeners
-    return () => {
-      if (handleKeyDown) window.removeEventListener('keydown', handleKeyDown);
-      if (handleKeyUp) window.removeEventListener('keyup', handleKeyUp);
-      
-      if (canvasContainerRef.current && resizeObserver) {
-        resizeObserver.unobserve(canvasContainerRef.current);
-      }
-      
-      // Canvas cleanup logic
-      if (canvasRef.current) {
-        try {
-          const canvas = canvasRef.current;
-          canvas.off();
-          canvas.clear();
-          canvas.dispose();
-        } catch (error) {
-          console.error("Error cleaning up canvas:", error);
-        }
-        canvasRef.current = null;
-      }
-    };
-  }, [width, height, onCanvasCreated, showGrid, gridSize, bgColor]);
-
-  // Function to create a dotted grid
-  const createGrid = (canvas: fabric.Canvas, size: number) => {
-    const gridGroup = new fabric.Group([], { selectable: false, evented: false });
-    
-    // Get actual canvas dimensions accounting for zoom and pan
-    const canvasWidth = canvas.getWidth();
-    const canvasHeight = canvas.getHeight();
-    
-    // Create vertical lines
-    for (let i = 0; i <= canvasWidth; i += size) {
-      const line = new fabric.Line([i, 0, i, canvasHeight], {
-        stroke: 'rgba(255, 255, 255, 0.2)',
-        strokeWidth: 1,
-        strokeDashArray: [2, 2],
-        selectable: false
-      });
-      gridGroup.addWithUpdate(line);
-    }
-    
-    // Create horizontal lines
-    for (let i = 0; i <= canvasHeight; i += size) {
-      const line = new fabric.Line([0, i, canvasWidth, i], {
-        stroke: 'rgba(255, 255, 255, 0.2)',
-        strokeWidth: 1,
-        strokeDashArray: [2, 2],
-        selectable: false
-      });
-      gridGroup.addWithUpdate(line);
-    }
-    
-    // Add grid to canvas and send to back
-    canvas.add(gridGroup);
-    gridGroup.sendToBack();
-    
-    // Tag with data attribute for identification
-    gridGroup.data = { type: 'grid' };
-  };
-
-  // Function to update grid when needed
-  useEffect(() => {
-    if (canvasRef.current && showGrid !== undefined) {
-      try {
-        // Remove existing grid
-        const objects = canvasRef.current.getObjects();
-        const existingGrid = objects.find(obj => obj.data?.type === 'grid');
-        if (existingGrid) {
-          canvasRef.current.remove(existingGrid);
-        }
+        // Dispatch event for parent components
+        window.dispatchEvent(new CustomEvent('artcanvas-initialized'));
         
-        // Create new grid if needed
+      } catch (error) {
+        console.error("Error creating Fabric canvas:", error);
+        setHasError(true);
+        if (canvasContainerRef.current) {
+          canvasContainerRef.current.innerHTML = 
+            '<div class="bg-red-600 text-white p-4 rounded">Failed to initialize canvas. Please refresh the page.</div>';
+        }
+      }
+    } catch (error) {
+      console.error("Canvas initialization error:", error);
+        setHasError(true);
+        
+        // Show error message
+        if (canvasContainerRef.current) {
+          canvasContainerRef.current.innerHTML = '<div class="bg-red-600 text-white p-4 rounded">Error initializing canvas. Please try refreshing the page.</div>';
+        }
+      }
+    };
+
+  // Measure container and update dimensions on mount and prop changes
+  useLayoutEffect(() => {
+    updateCanvasDimensions();
+  }, [propWidth, propHeight]);
+
+  // Main effect for canvas initialization
+  useEffect(() => {
+    // Use a brief timeout to ensure container dimensions are finalized
+    const timer = setTimeout(() => {
+      updateCanvasDimensions();
+      initCanvas();
+    }, 10);
+    
+    // Set up resize handler for responsive canvas
+    const handleResize = () => {
+      updateCanvasDimensions();
+    };
+    
+    window.addEventListener('resize', handleResize);
+
+    // Clean up resources
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('resize', handleResize);
+      disposeCanvas();
+    };
+  }, []);
+  
+  // Update when dependencies change
+  useEffect(() => {
+    if (isInitialized && canvasRef.current) {
+      // Update background color
+      if (effectiveBgColor) {
+        canvasRef.current.backgroundColor = effectiveBgColor;
+      }
+      
+      // Update grid
         if (showGrid) {
-          createGrid(canvasRef.current, gridSize || 20);
+        createGrid(canvasRef.current, gridSize);
+      } else if (gridRef.current) {
+        canvasRef.current.remove(gridRef.current);
+        gridRef.current = null;
         }
         
         canvasRef.current.renderAll();
-      } catch (error) {
-        console.error("Error updating grid:", error);
-      }
     }
-  }, [showGrid, gridSize]);
+  }, [showGrid, gridSize, gridColor, effectiveBgColor, theme, isInitialized]);
 
-  // Update background color when it changes
+  // Add this useEffect to force full screen dimensions on startup
   useEffect(() => {
-    if (canvasRef.current && bgColor) {
-      canvasRef.current.backgroundColor = bgColor;
+    console.log(`Setting canvas to fullscreen: ${window.innerWidth}x${window.innerHeight}`);
+    setWidth(window.innerWidth);
+    setHeight(window.innerHeight);
+    
+    // Also update canvas if already initialized
+    if (canvasRef.current && isInitialized) {
+      canvasRef.current.setWidth(window.innerWidth);
+      canvasRef.current.setHeight(window.innerHeight);
+      canvasRef.current.calcOffset();
       canvasRef.current.renderAll();
     }
-  }, [bgColor]);
+  }, [isInitialized]);
+
+  // Add a fullscreen resize handler
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    
+    // Force canvas to full screen size
+    const setFullScreenSize = () => {
+      console.log("Forcing full screen canvas:", window.innerWidth, "x", window.innerHeight);
+      
+      // Set canvas dimensions to window dimensions
+      canvasRef.current?.setWidth(window.innerWidth);
+      canvasRef.current?.setHeight(window.innerHeight);
+      
+      // Update state dimensions
+      setWidth(window.innerWidth);
+      setHeight(window.innerHeight);
+      
+      // Render and update grid if needed
+      canvasRef.current?.calcOffset();
+      canvasRef.current?.renderAll();
+    };
+    
+    // Initial size setting
+    setFullScreenSize();
+    
+    // Update size on window resize
+    const handleFullScreenResize = () => {
+      setFullScreenSize();
+    };
+    
+    window.addEventListener('resize', handleFullScreenResize);
+    
+    // Clean up
+    return () => {
+      window.removeEventListener('resize', handleFullScreenResize);
+    };
+  }, [canvasRef]);
 
   return (
-    <div 
-      ref={canvasContainerRef}
-      className={cn("relative w-full h-full canvas-wrapper overflow-hidden", className)}
-      style={{ 
-        touchAction: 'none',
-        minHeight: '300px', // Ensure minimum size
-        minWidth: '300px'
-      }}
-    />
+    <div className="w-screen h-screen" >
+      <div 
+        ref={canvasContainerRef}
+        className={cn("fixed inset-0 canvas-wrapper", className)}
+        style={{ 
+          touchAction: 'none',
+          width: '100vw',
+          height: '100vh',
+          overflow: 'hidden',
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          margin: 0,
+          padding: 0
+        }}
+        data-testid="canvas-container"
+      >
+        {hasError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-red-100 bg-opacity-50">
+            <div className="bg-red-600 text-white p-4 rounded shadow-lg">
+              <h3 className="text-lg font-bold mb-2">Canvas Error</h3>
+              <p>Failed to initialize canvas. Please try refreshing the page.</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 };
 

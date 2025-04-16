@@ -52,7 +52,9 @@ import {
   SplitSquareVertical,
   AlignJustify,
   FlipHorizontal,
-  FlipVertical
+  FlipVertical,
+  X,
+  Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -67,6 +69,7 @@ import { motion } from "framer-motion";
 import ContextMenu from './ContextMenu';
 import FloatingToolbar from './FloatingToolbar';
 import { useTheme } from "next-themes";
+import Together from "together-ai";
 
 // Define the DrawingTool type
 type DrawingTool = "select" | "pencil" | "brush" | "spray" | "marker" | "calligraphy" | 
@@ -80,7 +83,9 @@ type DrawingTool = "select" | "pencil" | "brush" | "spray" | "marker" | "calligr
   "gradient" | "pattern" | "free-transform" | "magnifier" | 
   "template" | "group" | "ungroup" | "align" | "distribute" | 
   "mask" | "handwriting" | "laser" | "timeline" | "emoji" |
-  "snap" | "curves" | "chart" | "callout" | "shadow";
+  "snap" | "curves" | "chart" | "callout" | "shadow" |
+  // AI tools
+  "ai-enhance" | "ai-generate";
 
 interface ArtCanvasProps {
   fullScreen?: boolean;
@@ -89,6 +94,7 @@ interface ArtCanvasProps {
   height?: number;
   initialTool?: string;
   onToolSelect?: (tool: string) => void;
+  onCanvasCreated?: (canvas: fabric.Canvas) => void;
 }
 
 interface ToolbarPosition {
@@ -144,7 +150,15 @@ const utilityTools = [
   { id: "image", name: "Image", icon: <ImageIcon size={20} />, tooltip: "Import image" },
 ];
 
-const ArtCanvas = ({ fullScreen = false, onChanged, width = 800, height = 600, initialTool, onToolSelect }: ArtCanvasProps) => {
+const ArtCanvas = ({ 
+  fullScreen = false, 
+  onChanged, 
+  width = window.innerWidth, 
+  height = window.innerHeight, 
+  initialTool, 
+  onToolSelect,
+  onCanvasCreated
+}: ArtCanvasProps) => {
   // State declarations
   const [history, setHistory] = useState<CanvasState[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -176,11 +190,19 @@ const ArtCanvas = ({ fullScreen = false, onChanged, width = 800, height = 600, i
     activeTool: DrawingTool;
     previousTool: DrawingTool;
     isToolPersistent: boolean;
+    color: string;
+    size: number;
+    fillColor: string;
+    starPoints?: number;
+    polygonSides?: number;
   }>(() => {
     return {
       activeTool: (localStorage.getItem('artflow-selected-tool') as DrawingTool) || "select",
       previousTool: (localStorage.getItem('artflow-previous-tool') as DrawingTool) || "select",
-      isToolPersistent: localStorage.getItem('artflow-tool-persistent') !== 'false'
+      isToolPersistent: localStorage.getItem('artflow-tool-persistent') !== 'false',
+      color: localStorage.getItem('artflow-brush-color') || "#000000",
+      size: parseInt(localStorage.getItem('artflow-brush-size') || "5"),
+      fillColor: localStorage.getItem('artflow-fill-color') || "#ffffff",
     };
   });
 
@@ -368,6 +390,8 @@ const ArtCanvas = ({ fullScreen = false, onChanged, width = 800, height = 600, i
   const generateHistoryState = useCallback(() => {
     if (!canvasRef.current) return null;
     
+    const canvas = canvasRef.current;
+    
     // Cancel any pending history updates
     if (historyUpdateTimeoutRef.current) {
       clearTimeout(historyUpdateTimeoutRef.current);
@@ -381,12 +405,12 @@ const ArtCanvas = ({ fullScreen = false, onChanged, width = 800, height = 600, i
     }
     
     const newState: CanvasState = {
-      objects: canvasRef.current.getObjects().map(obj => obj.toObject(['id'])), // Only serialize essential properties
-        width: canvasRef.current.width,
-        height: canvasRef.current.height,
-        zoom: canvasRef.current.getZoom(),
-        viewportTransform: canvasRef.current.viewportTransform,
-      };
+      objects: canvas.getObjects().map(obj => obj.toObject(['id'])), // Only serialize essential properties
+      width: canvas.width,
+      height: canvas.height,
+      zoom: canvas.getZoom(),
+      viewportTransform: canvas.viewportTransform,
+    };
     
     // Update history stack with size limit
     setHistory(prevHistory => {
@@ -706,10 +730,9 @@ const ArtCanvas = ({ fullScreen = false, onChanged, width = 800, height = 600, i
     
     const vpt = canvasRef.current.viewportTransform;
     if (!vpt) return;
-    
-    // Get canvas dimensions
-    const canvasWidth = canvasRef.current.getWidth() || 800;
-    const canvasHeight = canvasRef.current.getHeight() || 600;
+    // Get canvas dimensions - use full screen size if canvas dimensions are not available
+    const canvasWidth = canvasRef.current.getWidth() 
+    const canvasHeight = canvasRef.current.getHeight() 
     
     // Calculate boundaries based on zoom
     const currentZoom = canvasRef.current.getZoom();
@@ -990,6 +1013,12 @@ const ArtCanvas = ({ fullScreen = false, onChanged, width = 800, height = 600, i
     // Determine which tool category is active
     const [activeCategoryId, setActiveCategoryId] = useState('drawing');
     
+    // AI tools
+    const aiTools = [
+      { id: "ai-enhance", name: "AI Enhance", icon: <Wand2 size={18} />, tooltip: "Enhance selected area with AI" },
+      { id: "ai-generate", name: "AI Generate", icon: <Sparkles size={18} />, tooltip: "Generate new content with AI" },
+    ];
+    
     // Group all tools for easy access
     const toolCategories = [
       { id: "drawing", name: "Drawing Tools", tools: drawingTools },
@@ -997,6 +1026,7 @@ const ArtCanvas = ({ fullScreen = false, onChanged, width = 800, height = 600, i
       { id: "effects", name: "Effects", tools: effectTools },
       { id: "utility", name: "Utilities", tools: utilityTools },
       { id: "transform", name: "Transform", tools: transformTools },
+      { id: "AI", name: "AI Tools", tools: aiTools }, // Add AI tools category
     ];
 
     // Create a custom styles object for active tools
@@ -1089,7 +1119,7 @@ const ArtCanvas = ({ fullScreen = false, onChanged, width = 800, height = 600, i
             className="border-r border-white/10 pr-2 mr-2"
           >
             <TabsList className="bg-transparent border border-white/10 rounded-full p-0.5 h-8">
-              {toolCategories.slice(0, 3).map(category => (
+              {toolCategories.slice(0, 6).map(category => (
                 <TabsTrigger 
                   key={category.id}
                   value={category.id}
@@ -1698,11 +1728,38 @@ const ArtCanvas = ({ fullScreen = false, onChanged, width = 800, height = 600, i
           break;
           
         case "eraser":
+          try {
+            if (!fabric.Eraser) {
+              console.error("Eraser is not available in this Fabric.js version");
+              // Fallback to a white brush if Eraser is not available
           brush = new fabric.PencilBrush(canvasRef.current);
           (brush as fabric.PencilBrush).width = brushSize * 2;
-          (brush as fabric.PencilBrush).color = bgColor;
+              (brush as fabric.PencilBrush).color = theme === 'dark' ? '#ffffff' : '#000000';
           (brush as any).opacity = 1;
-          (brush as any).globalCompositeOperation = 'destination-out';
+            } else {
+              // Use proper Eraser with correct initialization
+              brush = new fabric.EraserBrush(canvasRef.current);
+              (brush as any).width = brushSize * 2;
+              
+              // Make sure eraser settings are optimal
+              if (canvasRef.current) {
+                // Enable erasing for all objects except grid
+                canvasRef.current.getObjects().forEach(obj => {
+                  if (obj.data?.type !== 'grid') {
+                    obj.erasable = true;
+                  } else {
+                    obj.erasable = false;
+                  }
+                });
+              }
+            }
+          } catch (error) {
+            console.error("Error setting up eraser:", error);
+            // Fallback
+            brush = new fabric.PencilBrush(canvasRef.current);
+            (brush as fabric.PencilBrush).width = brushSize * 2;
+            (brush as fabric.PencilBrush).color = theme === 'dark' ? '#ffffff' : '#000000';
+          }
           break;
           
         default:
@@ -1738,7 +1795,7 @@ const ArtCanvas = ({ fullScreen = false, onChanged, width = 800, height = 600, i
       canvasRef.current.freeDrawingBrush = fallbackBrush;
       return fallbackBrush;
     }
-  }, [canvasRef, brushColor, brushSize, brushOpacity, bgColor, toast]);
+  }, [canvasRef, brushColor, brushSize, brushOpacity, bgColor, toast, theme]);
 
   // Handle text tool
   const handleTextTool = useCallback(() => {
@@ -1984,6 +2041,13 @@ const ArtCanvas = ({ fullScreen = false, onChanged, width = 800, height = 600, i
     if (!canvasRef.current) return;
     
     try {
+      if (tool === 'ai-enhance' || tool === 'ai-generate') {
+        const area = getSelectedAreaAsBase64();
+        if (area) {
+          setSelectedArea(area);
+          setShowAIPanel(true);
+        }
+      }
       // Always update state first
       setActiveTool(tool);
       setCurrentTool(tool);
@@ -2075,6 +2139,8 @@ const ArtCanvas = ({ fullScreen = false, onChanged, width = 800, height = 600, i
         case "chart": setIsChartActive(true); break;
         case "callout": setIsCalloutActive(true); break;
         case "shadow": setIsShadowActive(true); break;
+        case "ai-enhance": setIsEyedropperActive(true); break;
+        case "ai-generate": setIsEyedropperActive(true); break;
       }
 
       // Reset any active shape or effect when switching tools
@@ -2285,7 +2351,20 @@ const ArtCanvas = ({ fullScreen = false, onChanged, width = 800, height = 600, i
       case "crayon":
       case "watercolor":
       case "glitter":
-      case "eraser": return "cursor-crosshair";
+      case "eraser": 
+        // Make sure eraser has a distinct cursor to indicate erasing mode
+        return canvasRef.current && canvasRef.current.isDrawingMode 
+          ? "cursor-crosshair" 
+          : "cursor-not-allowed";
+      case "rectangle":
+      case "circle":
+      case "triangle":
+      case "line":
+      case "star":
+      case "arrow":
+      case "polygon":
+      case "speech-bubble":
+      case "callout": return "cursor-crosshair";
       default: return "cursor-default";
     }
   }, [isPanning, spaceKeyPressed, activeTool]);
@@ -2437,13 +2516,14 @@ const ArtCanvas = ({ fullScreen = false, onChanged, width = 800, height = 600, i
           break;
           
         case 'arrow':
-          // Create an arrow using path
-          const path = `M ${startPoint.x},${startPoint.y} L ${startPoint.x},${startPoint.y}`;
-          currentShape = new fabric.Path(path, {
+          // Create an arrow using path with default styling
+          currentShape = new fabric.Path(`M ${startPoint.x},${startPoint.y} L ${startPoint.x},${startPoint.y}`, {
             stroke: brushColor,
             strokeWidth: brushSize,
             opacity: brushOpacity,
-            fill: brushColor
+            fill: 'transparent', // No fill at creation
+            strokeLineCap: 'round',
+            strokeLineJoin: 'round'
           });
           break;
           
@@ -2526,18 +2606,31 @@ const ArtCanvas = ({ fullScreen = false, onChanged, width = 800, height = 600, i
           break;
           
         case 'arrow':
-          // Update arrow path
-          const headSize = brushSize * 3;
-          // Calculate angle for arrowhead
+          // Create a proper arrow with a clear triangular head
+          const headSize = Math.max(8, brushSize * 2); // Ensure minimum head size
+          
+          // Calculate angle for the arrowhead
           const angle = Math.atan2(pointer.y - startPoint.y, pointer.x - startPoint.x);
-          // Calculate arrowhead points
+          
+          // Calculate arrowhead points (for a triangular head)
           const x1 = pointer.x - headSize * Math.cos(angle - Math.PI/6);
           const y1 = pointer.y - headSize * Math.sin(angle - Math.PI/6);
           const x2 = pointer.x - headSize * Math.cos(angle + Math.PI/6);
           const y2 = pointer.y - headSize * Math.sin(angle + Math.PI/6);
-          // Create arrow path with fixed semicolons
-          const arrowPath = `M ${startPoint.x},${startPoint.y} L ${pointer.x},${pointer.y} M ${pointer.x},${pointer.y} L ${x1},${y1} M ${pointer.x},${pointer.y} L ${x2},${y2}`;
-          (currentShape as fabric.Path).set({ path: arrowPath });
+          
+          // Create path with main line + arrowhead
+          const arrowPath = [
+            `M ${startPoint.x} ${startPoint.y}`,     // Move to start
+            `L ${pointer.x} ${pointer.y}`,           // Draw line to end
+            `M ${pointer.x} ${pointer.y}`,           // Move to arrowhead tip
+            `L ${x1} ${y1}`,                         // Draw one side of arrowhead
+            `M ${pointer.x} ${pointer.y}`,           // Move back to tip
+            `L ${x2} ${y2}`                          // Draw other side of arrowhead
+          ].join(' ');
+          
+          (currentShape as fabric.Path).set({
+            path: fabric.util.parsePath(arrowPath)
+          });
           break;
           
         case 'connector':
@@ -2864,644 +2957,10 @@ const ArtCanvas = ({ fullScreen = false, onChanged, width = 800, height = 600, i
     canvasRef.current.hoverCursor = 'crosshair';
     
   }, [brushColor, brushSize, brushOpacity, generateHistoryState]);
-  
-  // Sticky Note Tool
-  const handleStickyNote = useCallback(() => {
-    if (!canvasRef.current) return;
-    
-    // Remove any existing listeners
-    canvasRef.current.off('mouse:down');
-    
-    const onMouseDown = (options: fabric.IEvent) => {
-      if (!canvasRef.current) return;
-      
-      const pointer = canvasRef.current.getPointer(options.e);
-      
-      // Create sticky note rectangle
-      const stickyWidth = 150;
-      const stickyHeight = 150;
-      
-      // Generate a pastel color
-      const hue = Math.floor(Math.random() * 360);
-      const stickyColor = `hsl(${hue}, 80%, 80%)`;
-      
-      // Create the sticky note as a group of objects
-      const background = new fabric.Rect({
-        left: 0,
-        top: 0,
-        width: stickyWidth,
-        height: stickyHeight,
-        fill: stickyColor,
-        rx: 5, // rounded corners
-        ry: 5,
-        shadow: new fabric.Shadow({
-          color: 'rgba(0,0,0,0.3)',
-          offsetX: 3,
-          offsetY: 3,
-          blur: 5
-        })
-      });
-      
-      // Add text to the sticky note
-      const text = new fabric.IText('Double-click to edit', {
-        left: 10,
-        top: 10,
-        fontSize: 14,
-        fontFamily: 'Arial',
-        fill: '#333333',
-        width: stickyWidth - 20
-      });
-      
-      // Group the objects
-      const stickyGroup = new fabric.Group([background, text], {
-        left: pointer.x - stickyWidth/2,
-        top: pointer.y - stickyHeight/2,
-        originX: 'left',
-        originY: 'top',
-      });
-      
-      stickyGroup.setCoords();
-      canvasRef.current.add(stickyGroup);
-      canvasRef.current.setActiveObject(stickyGroup);
-      canvasRef.current.renderAll();
-      
-      // Save state
-      generateHistoryState();
-    };
-    
-    // Add event listener
-    canvasRef.current.on('mouse:down', onMouseDown);
-    
-    // Configure canvas for sticky note tool
-    canvasRef.current.defaultCursor = 'crosshair';
-    canvasRef.current.hoverCursor = 'crosshair';
-    canvasRef.current.selection = true;
-    
-  }, [generateHistoryState]);
-  
-  // Update handleToolSelect to use setupShapeDrawing
-  useEffect(() => {
-    if (activeShape && canvasRef.current) {
-      setupShapeDrawing();
-    }
-    
-    // Initialize object scaling when using select tool
-    if (activeTool === 'select' && canvasRef.current) {
-      setupObjectScaling();
-    }
-    
-    // Initialize connector tool
-    if (activeTool === 'connector' && canvasRef.current) {
-      setupConnectorTool();
-    }
-  }, [activeTool, activeShape, setupShapeDrawing, setupObjectScaling, setupConnectorTool]);
-
-  // Clean up render requests on unmount
-  useEffect(() => {
-    return () => {
-      if (renderRequestRef.current !== null) {
-        cancelAnimationFrame(renderRequestRef.current);
-      }
-      
-      // Clean up any other resources
-      if (canvasRef.current) {
-        try {
-          canvasRef.current.dispose();
-        } catch (e) {
-          console.error("Error disposing canvas:", e);
-        }
-      }
-    };
-  }, []);
-
-  // Add handler for sharing drawing
-  const shareDrawing = useCallback(() => {
-    if (!canvasRef.current) return;
-    
-    // Generate a data URL for the canvas
-    try {
-      const dataUrl = canvasRef.current.toDataURL({
-        format: 'png',
-        quality: 0.8
-      });
-      
-      // Copy the data URL to clipboard
-      navigator.clipboard.writeText(dataUrl)
-        .then(() => {
-          sonnerToast.success("Canvas image URL copied to clipboard!");
-        })
-        .catch(err => {
-          console.error("Failed to copy canvas URL:", err);
-          sonnerToast.error("Failed to copy canvas URL");
-        });
-    } catch (err) {
-      console.error("Error generating canvas URL:", err);
-      sonnerToast.error("Error generating canvas URL");
-    }
-  }, [canvasRef]);
-
-  const downloadCanvas = useCallback(() => {
-    if (!canvasRef.current) return;
-    
-    try {
-      // Generate a data URL of the canvas
-      const dataUrl = canvasRef.current.toDataURL({
-        format: 'png',
-        quality: 0.8
-      });
-      
-      // Create a link and trigger a download
-      const link = document.createElement('a');
-      link.download = `art-canvas-${Date.now()}.png`;
-      link.href = dataUrl;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      sonnerToast.success("Canvas downloaded successfully!");
-    } catch (err) {
-      console.error("Error downloading canvas:", err);
-      sonnerToast.error("Failed to download canvas");
-    }
-  }, [canvasRef]);
-
-  // Use color picker to sample the canvas
-  const useEyedropper = useCallback((e: MouseEvent) => {
-    if (!canvasRef.current) return;
-    
-    const canvas = canvasRef.current;
-    const pointer = canvas.getPointer({ clientX: e.clientX, clientY: e.clientY, target: e.target as Element });
-    
-    // Get the color from the canvas at the clicked point
-    const context = canvas.getContext();
-    const imageData = context.getImageData(
-      Math.round(pointer.x), 
-      Math.round(pointer.y), 
-      1, 
-      1
-    );
-    
-    const [r, g, b, a] = imageData.data;
-    
-    // Convert to hex
-    const hexColor = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
-    
-    // Set the brush color
-    handleBrushColorChange(hexColor);
-    
-    // Notify user
-    sonnerToast.success(`Color picked: ${hexColor}`, {
-      description: "Color applied to brush",
-      duration: 1500
-    });
-    
-    // REMOVED: code that switched back to previous tool
-    // The eyedropper will now remain active until explicitly changed
-  }, [canvasRef, handleBrushColorChange]);
-
-  // Update the fillArea function with proper tool state management
-  const fillArea = useCallback((e: MouseEvent) => {
-    if (!canvasRef.current) return;
-    
-    const canvas = canvasRef.current;
-    const pointer = canvas.getPointer({ clientX: e.clientX, clientY: e.clientY, target: e.target as Element });
-    
-    // Create a fill rectangle - this is a simplified fill algorithm
-    const rect = new fabric.Rect({
-      left: 0,
-      top: 0,
-      width: canvas.width,
-      height: canvas.height,
-      fill: brushColor,
-      opacity: brushOpacity,
-      selectable: false,
-      hoverCursor: 'default',
-    });
-    
-    // Add to canvas under all other objects
-    canvas.add(rect);
-    rect.sendToBack();
-    canvas.renderAll();
-    
-    // Save to history
-    debounceHistoryUpdate();
-    
-    // Save the color to localStorage
-    localStorage.setItem('artflow-last-fill-color', brushColor);
-    
-    // Notify user
-    sonnerToast.success('Fill applied', {
-      description: "Background color changed",
-      duration: 1500
-    });
-    
-    // REMOVED: code that switched back to previous tool
-    // The fill tool will now remain active until explicitly changed
-  }, [canvasRef, brushColor, brushOpacity, debounceHistoryUpdate]);
-
-  // Initialize the canvas with the initialTool
-  useEffect(() => {
-    if (!canvasRef.current) return;
-    
-    try {
-      // Apply the saved or default tool after canvas has initialized
-      const savedTool = localStorage.getItem('artflow-selected-tool') as DrawingTool;
-      if (savedTool) {
-        handleToolSelect(savedTool);
-      }
-      
-      // Set consistent background color
-      canvasRef.current.setBackgroundColor(bgColor, canvasRef.current.renderAll.bind(canvasRef.current));
-      
-      // Also load saved canvas state if available
-      // const savedCanvasState = localStorage.getItem('canvas-state');
-      // if (savedCanvasState) {
-      //   try {
-      //     canvasRef.current.loadFromJSON(JSON.parse(savedCanvasState), () => {
-      //       canvasRef.current?.renderAll();
-      //       generateHistoryState();
-      //       toast({ 
-      //         title: "Canvas Restored", 
-      //         description: "Previous work has been loaded" 
-      //       });
-      //     });
-      //   } catch (err) {
-      //     console.error('Error loading saved canvas state:', err);
-      //     toast({ 
-      //       title: "Error", 
-      //       description: "Could not restore previous canvas" 
-      //     });
-      //   }
-      // }
-      
-      // Initialize tool state properly
-      setActiveTool(savedTool || 'select');
-      
-      // Set initial tool as current tool too
-      setCurrentTool(savedTool || 'select');
-      
-      // Dispatch event to ensure UI is in sync
-      window.dispatchEvent(new CustomEvent('artcanvas-tool-selected', { 
-        detail: { tool: savedTool || 'select' } 
-      }));
-      
-    } catch (error) {
-      console.error('Error during canvas initialization:', error);
-      toast({ 
-        title: "Initialization Error", 
-        description: "Some features may not work properly" 
-      });
-    }
-  }, [canvasRef, bgColor, generateHistoryState, toast]);
-
-  // Add automatic saving of canvas state periodically
-  useEffect(() => {
-    if (!canvasRef.current) return;
-    
-    // Save canvas state every 30 seconds
-    const autoSaveInterval = setInterval(() => {
-      try {
-        if (canvasRef.current) {
-          const json = JSON.stringify(canvasRef.current.toJSON());
-          localStorage.setItem('canvas-state-autosave', json);
-        }
-      } catch (error) {
-        console.error('Error during auto-save:', error);
-      }
-    }, 30000); // 30 seconds
-    
-    return () => {
-      clearInterval(autoSaveInterval);
-    };
-  }, [canvasRef]);
-
-  // Add a handler to save state when window is closed
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      try {
-        if (canvasRef.current) {
-          const json = JSON.stringify(canvasRef.current.toJSON());
-          localStorage.setItem('canvas-state', json);
-          
-          // Also save current tool state
-          localStorage.setItem('artflow-selected-tool', activeTool);
-          localStorage.setItem('artflow-brush-color', brushColor);
-          localStorage.setItem('artflow-brush-size', brushSize.toString());
-          localStorage.setItem('artflow-brush-opacity', brushOpacity.toString());
-        }
-      } catch (error) {
-        console.error('Error saving canvas state:', error);
-      }
-    };
-    
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [canvasRef, activeTool, brushColor, brushSize, brushOpacity]);
-
-  // Add keyboard shortcut support
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Skip if user is typing in an input or textarea
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-        return;
-      }
-      
-      // Skip if modifier keys are pressed (except for undo/redo)
-      if (e.altKey || e.shiftKey) {
-        return;
-      }
-      
-      // Shortcuts that work with Ctrl key
-      if (e.ctrlKey) {
-        switch(e.key.toLowerCase()) {
-          case 'z': 
-            e.preventDefault();
-            if (canvasRef.current && historyIndex > 0) {
-              // Implement undo logic here
-              const currentState = history[historyIndex];
-              setRedoStack(prev => [...prev, currentState]);
-              const prevState = history[historyIndex - 1];
-              canvasRef.current.loadFromJSON(prevState, () => {
-                canvasRef.current?.renderAll();
-                setHistoryIndex(historyIndex - 1);
-              });
-            }
-            return;
-          case 'y':
-            e.preventDefault();
-            if (canvasRef.current && redoStack.length > 0) {
-              // Implement redo logic here
-              const lastIndex = redoStack.length - 1;
-              const nextState = redoStack[lastIndex];
-              canvasRef.current.loadFromJSON(nextState, () => {
-                canvasRef.current?.renderAll();
-                setHistoryIndex(historyIndex + 1);
-                setRedoStack(redoStack.slice(0, -1));
-              });
-            }
-            return;
-          case 's':
-            e.preventDefault();
-            if (canvasRef.current) {
-              const json = JSON.stringify(canvasRef.current.toJSON());
-              localStorage.setItem('canvas-state', json);
-              toast({ title: "Saved", description: "Canvas saved locally" });
-            }
-            return;
-        }
-        return;
-      }
-      
-      // Single key shortcuts for tool selection
-      switch(e.key.toLowerCase()) {
-        case 'v': handleToolSelect('select'); break;
-        case 'p': handleToolSelect('pencil'); break;
-        case 'b': handleToolSelect('brush'); break;
-        case 's': handleToolSelect('spray'); break;
-        case 'm': handleToolSelect('marker'); break;
-        case 'c': handleToolSelect('calligraphy'); break;
-        case 'e': handleToolSelect('eraser'); break;
-        case 'r': handleToolSelect('rectangle'); break;
-        case 'o': handleToolSelect('circle'); break;
-        case 't': handleToolSelect('text'); break;
-        case 'l': handleToolSelect('line'); break;
-        case 'k': handleToolSelect('eyedropper'); break;
-        case 'f': handleToolSelect('fill'); break;
-        case 'g': 
-          // Toggle grid
-          setShowGrid(!showGrid);
-          break;
-        case 'delete':
-          if (canvasRef.current) {
-            const activeObject = canvasRef.current.getActiveObject();
-            if (activeObject) {
-              canvasRef.current.remove(activeObject);
-              canvasRef.current.renderAll();
-              generateHistoryState();
-            }
-          }
-          break;
-      }
-    };
-    
-    window.addEventListener('keydown', handleKeyDown);
-    
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [
-    
-    showGrid, 
-    setShowGrid,
-    canvasRef, 
-    generateHistoryState, 
-    history, 
-    historyIndex, 
-    setHistoryIndex,
-    redoStack, 
-    setRedoStack,
-    toast
-  ]);
-
-  // Template Tool
-  const handleTemplateTool = useCallback(() => {
-    if (!canvasRef.current) return;
-    
-    // Set up canvas for template tool
-    canvasRef.current.isDrawingMode = false;
-    canvasRef.current.selection = true;
-    canvasRef.current.defaultCursor = 'default';
-    canvasRef.current.hoverCursor = 'default';
-    
-    // Show a toast notification about the template tool
-    toast({
-      title: "Template Tool",
-      description: "Select a template to add to your canvas",
-      duration: 2000
-    });
-    
-    // This would typically open a template selection UI
-    // For now, it's just a placeholder
-  }, [canvasRef, toast]);
-
-  // Advanced Fill Tool (Gradient, Pattern, Shadow)
-  const handleAdvancedFill = useCallback((tool: DrawingTool) => {
-    if (!canvasRef.current) return;
-    
-    // Configure canvas for fill tool
-    canvasRef.current.isDrawingMode = false;
-    canvasRef.current.selection = true;
-    
-    // Check if there's an active object
-    const activeObject = canvasRef.current.getActiveObject();
-    if (!activeObject) {
-      toast({
-        title: "Select an object",
-        description: `Please select an object to apply ${tool}`,
-        duration: 2000
-      });
-      return;
-    }
-    
-    try {
-      switch (tool) {
-        case "gradient":
-          // Create a gradient fill
-          const gradient = new fabric.Gradient({
-            type: 'linear',
-            coords: { x1: 0, y1: 0, x2: activeObject.width, y2: activeObject.height },
-            colorStops: [
-              { offset: 0, color: brushColor },
-              { offset: 1, color: '#ffffff' }
-            ]
-          });
-          activeObject.set('fill', gradient);
-          break;
-          
-        case "pattern":
-          // Create a pattern from a predefined set
-          const patternOptions = {
-            source: function() {
-              const squareSize = 10;
-              const patternCanvas = document.createElement('canvas');
-              patternCanvas.width = squareSize * 2;
-              patternCanvas.height = squareSize * 2;
-              const ctx = patternCanvas.getContext('2d');
-              if (!ctx) return patternCanvas;
-              
-              // Draw pattern
-              ctx.fillStyle = brushColor;
-              ctx.fillRect(0, 0, squareSize, squareSize);
-              ctx.fillRect(squareSize, squareSize, squareSize, squareSize);
-              
-              return patternCanvas;
-            }
-          };
-          
-          const pattern = new fabric.Pattern(patternOptions);
-          activeObject.set('fill', pattern);
-          break;
-          
-        case "shadow":
-          // Apply shadow to the object
-          activeObject.set('shadow', new fabric.Shadow({
-            color: 'rgba(0,0,0,0.5)',
-            blur: 10,
-            offsetX: 5,
-            offsetY: 5
-          }));
-          break;
-      }
-      
-      canvasRef.current.renderAll();
-      generateHistoryState();
-      
-      toast({
-        title: "Effect applied",
-        description: `${tool.charAt(0).toUpperCase() + tool.slice(1)} applied to object`,
-        duration: 1500
-      });
-    } catch (error) {
-      console.error(`Error applying ${tool}:`, error);
-      toast({
-        title: "Error",
-        description: `Could not apply ${tool} effect`,
-        duration: 1500
-      });
-    }
-  }, [canvasRef, brushColor, generateHistoryState, toast]);
-
-  // Free Transform Tool
-  const handleFreeTransform = useCallback(() => {
-    if (!canvasRef.current) return;
-    
-    // Configure canvas for transform tool
-    canvasRef.current.isDrawingMode = false;
-    canvasRef.current.selection = true;
-    
-    // Check if there's an active object
-    const activeObject = canvasRef.current.getActiveObject();
-    if (!activeObject) {
-      toast({
-        title: "Select an object",
-        description: "Please select an object to transform",
-        duration: 2000
-      });
-      return;
-    }
-    
-    try {
-      // Enable all control points for the object
-      activeObject.setControlsVisibility({
-        mt: true, // middle top
-        mb: true, // middle bottom
-        ml: true, // middle left
-        mr: true, // middle right
-        tl: true, // top left
-        tr: true, // top right
-        bl: true, // bottom left
-        br: true  // bottom right
-      });
-      
-      // Show transform controls panel
-      setShowTransformPanel(true);
-      
-      toast({
-        title: "Free Transform",
-        description: "Use controls to transform the object",
-        duration: 1500
-      });
-      
-      // Enhanced object controls
-      activeObject.set({
-        borderColor: '#00A0FF',
-        cornerColor: '#00A0FF',
-        cornerSize: 12,
-        transparentCorners: false,
-        cornerStyle: 'circle',
-        borderScaleFactor: 1.5
-      });
-      
-      canvasRef.current.renderAll();
-    } catch (error) {
-      console.error("Error in free transform:", error);
-      toast({
-        title: "Error",
-        description: "Could not enable transform controls",
-        duration: 1500
-      });
-    }
-  }, [canvasRef, toast, setShowTransformPanel]);
-
-  // Custom rendering function for skew controls (defined outside the callback)
-  function renderSkewControl(
-    ctx: CanvasRenderingContext2D,
-    left: number,
-    top: number,
-    styleOverride: any,
-    fabricObject: fabric.Object
-  ) {
-    const size = this.cornerSize;
-    ctx.save();
-    ctx.translate(left, top);
-    ctx.rotate(fabric.util.degreesToRadians(fabricObject.angle));
-    ctx.beginPath();
-    ctx.moveTo(-size/2, -size/2);
-    ctx.lineTo(size/2, -size/2);
-    ctx.lineTo(size/2, size/2);
-    ctx.lineTo(-size/2, size/2);
-    ctx.closePath();
-    ctx.fillStyle = '#00ADEF';
-    ctx.fill();
-    ctx.restore();
-  }
 
   // Add this to your component's return statement
   const renderTransformPanel = () => {
-    if (!showTransformPanel || !canvasRef.current) return null;
+    if (!canvasRef.current) return null;
     
     const activeObj = canvasRef.current.getActiveObject();
     if (!activeObj) return null;
@@ -3612,45 +3071,6 @@ const ArtCanvas = ({ fullScreen = false, onChanged, width = 800, height = 600, i
     );
   };
 
-  // Magnifier Tool
-  const handleMagnifier = useCallback(() => {
-    if (!canvasRef.current) return;
-    
-    // Configure canvas for magnifier tool
-    canvasRef.current.isDrawingMode = false;
-    canvasRef.current.selection = false;
-    canvasRef.current.defaultCursor = 'zoom-in';
-    canvasRef.current.hoverCursor = 'zoom-in';
-    
-    // Set up click handler for zooming
-    const magnifierHandler = (event: fabric.IEvent) => {
-      const pointer = canvasRef.current?.getPointer(event.e);
-      if (!pointer) return;
-      
-      // Get current zoom
-      const zoom = canvasRef.current.getZoom();
-      
-      // Create zoom point (where we clicked)
-      const point = new fabric.Point(pointer.x, pointer.y);
-      
-      // Zoom in by 20%
-      canvasRef.current.zoomToPoint(point, zoom * 1.2);
-      
-      // Notify user about zoom
-      toast({
-        title: "Zoomed in",
-        description: `Zoom level: ${Math.round(zoom * 120)}%`,
-        duration: 1500
-      });
-    };
-    
-    // Remove existing handlers
-    canvasRef.current.off('mouse:down');
-    
-    // Add new handler
-    canvasRef.current.on('mouse:down', magnifierHandler);
-    
-  }, [canvasRef, toast]);
 
   // Group Objects Tool
   const handleGroupObjects = useCallback(() => {
@@ -4754,148 +4174,203 @@ const ArtCanvas = ({ fullScreen = false, onChanged, width = 800, height = 600, i
   }, [canvasRef, generateHistoryState, toast]);
 
   // Improved shape creation
-  const handleShapeTool = useCallback((shapeType: DrawingTool) => {
+   
+  // Template tool handler
+  const handleTemplateTool = useCallback(() => {
     if (!canvasRef.current) return;
     
-    let shapeObj: fabric.Object | null = null;
-    let isDrawing = false;
-    let startPoint = { x: 0, y: 0 };
+    // Remove any existing listeners
+    canvasRef.current.off('mouse:down');
     
-    canvasRef.current.isDrawingMode = false;
-    canvasRef.current.selection = false;
-    canvasRef.current.defaultCursor = 'crosshair';
-    
-    const onMouseDown = (options: fabric.IEvent) => {
-      if (!canvasRef.current) return;
-      
-      isDrawing = true;
-      const pointer = canvasRef.current.getPointer(options.e);
-      startPoint = { x: pointer.x, y: pointer.y };
-      
-      // Create initial shape based on type
-      switch (shapeType) {
-        case "rectangle":
-          shapeObj = new fabric.Rect({
-            left: startPoint.x,
-            top: startPoint.y,
-            width: 1,
-            height: 1,
+    // Define templates
+    const templates = [
+      {
+        name: "2x2 Grid",
+        create: () => {
+          const canvasWidth = canvasRef.current!.getWidth();
+          const canvasHeight = canvasRef.current!.getHeight();
+          const cellWidth = canvasWidth / 2;
+          const cellHeight = canvasHeight / 2;
+          
+          // Create grid lines
+          const horizontalLine = new fabric.Line([0, canvasHeight/2, canvasWidth, canvasHeight/2], {
+            stroke: brushColor,
+            strokeWidth: 2,
+            selectable: true
+          });
+          
+          const verticalLine = new fabric.Line([canvasWidth/2, 0, canvasWidth/2, canvasHeight], {
+            stroke: brushColor,
+            strokeWidth: 2,
+            selectable: true
+          });
+          
+          canvasRef.current!.add(horizontalLine, verticalLine);
+          canvasRef.current!.renderAll();
+          generateHistoryState();
+        }
+      },
+      {
+        name: "3x3 Grid",
+        create: () => {
+          const canvasWidth = canvasRef.current!.getWidth();
+          const canvasHeight = canvasRef.current!.getHeight();
+          
+          // Create horizontal lines
+          for (let i = 1; i < 3; i++) {
+            const y = (canvasHeight / 3) * i;
+            const line = new fabric.Line([0, y, canvasWidth, y], {
+              stroke: brushColor,
+              strokeWidth: 2,
+              selectable: true
+            });
+            canvasRef.current!.add(line);
+          }
+          
+          // Create vertical lines
+          for (let i = 1; i < 3; i++) {
+            const x = (canvasWidth / 3) * i;
+            const line = new fabric.Line([x, 0, x, canvasHeight], {
+              stroke: brushColor,
+              strokeWidth: 2,
+              selectable: true
+            });
+            canvasRef.current!.add(line);
+          }
+          
+          canvasRef.current!.renderAll();
+          generateHistoryState();
+        }
+      },
+      {
+        name: "Flowchart",
+        create: () => {
+          const canvasWidth = canvasRef.current!.getWidth();
+          const canvasHeight = canvasRef.current!.getHeight();
+          const centerX = canvasWidth / 2;
+          const startY = 100;
+          
+          // Start oval
+          const startOval = new fabric.Ellipse({
+            left: centerX - 75,
+            top: startY,
+            rx: 75,
+            ry: 30,
             fill: 'transparent',
             stroke: brushColor,
-            strokeWidth: brushSize,
-            opacity: brushOpacity
+            strokeWidth: 2,
+            selectable: true
           });
-          break;
-        
-        case "circle":
-          shapeObj = new fabric.Circle({
-            left: startPoint.x,
-            top: startPoint.y,
-            radius: 1,
+          
+          // Decision diamond
+          const decisionTop = startY + 100;
+          const diamond = new fabric.Polygon([
+            { x: centerX, y: decisionTop },
+            { x: centerX + 75, y: decisionTop + 50 },
+            { x: centerX, y: decisionTop + 100 },
+            { x: centerX - 75, y: decisionTop + 50 }
+          ], {
             fill: 'transparent',
             stroke: brushColor,
-            strokeWidth: brushSize,
-            opacity: brushOpacity
+            strokeWidth: 2,
+            selectable: true
           });
-          break;
-        
-        case "triangle":
-          shapeObj = new fabric.Triangle({
-            left: startPoint.x,
-            top: startPoint.y,
-            width: 1,
-            height: 1,
+          
+          // Process rectangle
+          const processTop = decisionTop + 150;
+          const rect = new fabric.Rect({
+            left: centerX - 75,
+            top: processTop,
+            width: 150,
+            height: 60,
             fill: 'transparent',
             stroke: brushColor,
-            strokeWidth: brushSize,
-            opacity: brushOpacity
+            strokeWidth: 2,
+            selectable: true
           });
-          break;
-        
-        case "line":
-          const points = [startPoint.x, startPoint.y, startPoint.x + 1, startPoint.y + 1];
-          shapeObj = new fabric.Line(points, {
+          
+          // Connecting lines
+          const line1 = new fabric.Line([centerX, startY + 30, centerX, decisionTop], {
             stroke: brushColor,
-            strokeWidth: brushSize,
-            opacity: brushOpacity
+            strokeWidth: 2,
+            selectable: true
           });
-          break;
-        
-        // Add other shapes...
-      }
-      
-      if (shapeObj) {
-        canvasRef.current.add(shapeObj);
-      }
-    };
-    
-    const onMouseMove = (options: fabric.IEvent) => {
-      if (!isDrawing || !canvasRef.current || !shapeObj) return;
-      
-      const pointer = canvasRef.current.getPointer(options.e);
-      
-      const width = Math.abs(pointer.x - startPoint.x);
-      const height = Math.abs(pointer.y - startPoint.y);
-      
-      // Update shape dimensions based on mouse position
-      switch (shapeType) {
-        case "rectangle":
-          const rect = shapeObj as fabric.Rect;
-          rect.set({
-            left: Math.min(startPoint.x, pointer.x),
-            top: Math.min(startPoint.y, pointer.y),
-            width: width,
-            height: height
+          
+          const line2 = new fabric.Line([centerX, decisionTop + 100, centerX, processTop], {
+            stroke: brushColor,
+            strokeWidth: 2,
+            selectable: true
           });
-          break;
-        
-        case "circle":
-          const circle = shapeObj as fabric.Circle;
-          const radius = Math.max(width, height) / 2;
-          circle.set({
-            left: Math.min(startPoint.x, pointer.x),
-            top: Math.min(startPoint.y, pointer.y),
-            radius: radius
-          });
-          break;
-        
-        case "triangle":
-          const triangle = shapeObj as fabric.Triangle;
-          triangle.set({
-            left: Math.min(startPoint.x, pointer.x),
-            top: Math.min(startPoint.y, pointer.y),
-            width: width,
-            height: height
-          });
-          break;
-        
-        case "line":
-          const line = shapeObj as fabric.Line;
-          line.set({
-            x2: pointer.x,
-            y2: pointer.y
-          });
-          break;
-        
-        // Update other shapes...
-      }
-      
-      canvasRef.current.renderAll();
-    };
-    
-    const onMouseUp = () => {
-      isDrawing = false;
-      if (canvasRef.current && shapeObj) {
-        // Finalize shape
-        canvasRef.current.setActiveObject(shapeObj);
-        generateHistoryState();
-        
-        // If tool is not persistent, return to select tool
-        if (!isToolPersistent) {
-          handleToolSelect('select');
+          
+          canvasRef.current!.add(startOval, diamond, rect, line1, line2);
+          canvasRef.current!.renderAll();
+          generateHistoryState();
         }
       }
-    };
+    ];
+    
+    // Show template selection dialog
+    const templateNames = templates.map(t => t.name);
+    const dialogMessage = "Select a template to add to your canvas:";
+    
+    // Use a simple dialog for template selection
+    const selectedTemplate = window.prompt(dialogMessage, templateNames.join(", "));
+    
+    if (selectedTemplate) {
+      const template = templates.find(t => t.name.toLowerCase() === selectedTemplate.toLowerCase());
+      
+      if (template) {
+        template.create();
+        sonnerToast.success("Template Added", {
+          description: `${template.name} template has been added to your canvas`
+        });
+      } else {
+        sonnerToast.error("Template Not Found", {
+          description: `Could not find template: ${selectedTemplate}`
+        });
+      }
+    }
+    
+    // Return to select tool
+    handleToolSelect('select');
+  }, [canvasRef, handleToolSelect, generateHistoryState, brushColor]);
+  
+  // Advanced fill tools handler (gradient, pattern, shadow)
+  const handleAdvancedFill = useCallback((tool: DrawingTool) => {
+    if (!canvasRef.current) return;
+    
+    sonnerToast.info(`${tool.charAt(0).toUpperCase() + tool.slice(1)} Tool`, {
+      description: `${tool} tool is not fully implemented yet`
+    });
+    
+    // Return to select tool for now
+    handleToolSelect('select');
+  }, [canvasRef, handleToolSelect]);
+  
+  // Free transform tool handler
+  const handleFreeTransform = useCallback(() => {
+    if (!canvasRef.current) return;
+    
+    sonnerToast.info("Free Transform Tool", {
+      description: "Free transform tool is not fully implemented yet"
+    });
+    
+    // Return to select tool for now
+    handleToolSelect('select');
+  }, [canvasRef, handleToolSelect]);
+  
+  // Magnifier tool handler
+  const handleMagnifier = useCallback(() => {
+    if (!canvasRef.current) return;
+    
+    // Configure canvas for magnifier tool
+    canvasRef.current.isDrawingMode = false;
+    canvasRef.current.selection = false;
+    canvasRef.current.defaultCursor = 'zoom-in';
+    canvasRef.current.hoverCursor = 'zoom-in';
+    
+    let isZooming = false;
+    let zoomFactor = 1.5; // Default zoom factor
     
     // Remove existing listeners
     canvasRef.current.off('mouse:down');
@@ -4903,11 +4378,870 @@ const ArtCanvas = ({ fullScreen = false, onChanged, width = 800, height = 600, i
     canvasRef.current.off('mouse:up');
     
     // Add new listeners
-    canvasRef.current.on('mouse:down', onMouseDown);
-    canvasRef.current.on('mouse:move', onMouseMove);
-    canvasRef.current.on('mouse:up', onMouseUp);
-  }, [canvasRef, brushColor, brushSize, brushOpacity, isToolPersistent, handleToolSelect, generateHistoryState]);
+    canvasRef.current.on('mouse:down', (options) => {
+      if (!canvasRef.current) return;
+      isZooming = true;
+      
+      const pointer = canvasRef.current.getPointer(options.e);
+      
+      // Check if Alt key is pressed for zoom out
+      if (options.e.altKey) {
+        canvasRef.current.zoomToPoint(new fabric.Point(pointer.x, pointer.y), canvasRef.current.getZoom() / zoomFactor);
+        canvasRef.current.defaultCursor = 'zoom-out';
+        canvasRef.current.hoverCursor = 'zoom-out';
+      } else {
+        canvasRef.current.zoomToPoint(new fabric.Point(pointer.x, pointer.y), canvasRef.current.getZoom() * zoomFactor);
+        canvasRef.current.defaultCursor = 'zoom-in';
+        canvasRef.current.hoverCursor = 'zoom-in';
+      }
+      
+      canvasRef.current.renderAll();
+    });
+    
+    canvasRef.current.on('mouse:move', (options) => {
+      if (!canvasRef.current || !isZooming) return;
+      
+      // Update cursor based on Alt key
+      if (options.e.altKey) {
+        canvasRef.current.defaultCursor = 'zoom-out';
+        canvasRef.current.hoverCursor = 'zoom-out';
+      } else {
+        canvasRef.current.defaultCursor = 'zoom-in';
+        canvasRef.current.hoverCursor = 'zoom-in';
+      }
+    });
+    
+    canvasRef.current.on('mouse:up', () => {
+      isZooming = false;
+    });
+    
+    // Display instructions to user
+    sonnerToast.success("Magnifier Tool Activated", {
+      description: "Click to zoom in, hold Alt and click to zoom out"
+    });
+    
+  }, [canvasRef]);
 
+  // Add handleStickyNote implementation
+  const handleStickyNote = useCallback(() => {
+    if (!canvasRef.current) return;
+    
+    // Remove any existing listeners
+    canvasRef.current.off('mouse:down');
+    
+    const onMouseDown = (options: fabric.IEvent) => {
+      if (!canvasRef.current) return;
+      
+      const pointer = canvasRef.current.getPointer(options.e);
+      
+      // Create sticky note rectangle
+      const stickyWidth = 150;
+      const stickyHeight = 150;
+      
+      // Generate a pastel color
+      const hue = Math.floor(Math.random() * 360);
+      const stickyColor = `hsl(${hue}, 80%, 80%)`;
+      
+      // Create the sticky note background
+      const background = new fabric.Rect({
+        width: stickyWidth,
+        height: stickyHeight,
+        fill: stickyColor,
+        rx: 5, // rounded corners
+        ry: 5,
+        shadow: new fabric.Shadow({
+          color: 'rgba(0,0,0,0.3)',
+          offsetX: 3,
+          offsetY: 3,
+          blur: 5
+        })
+      });
+      
+      // Add text to the sticky note - as a separate object, not grouped
+      const text = new fabric.IText('Double-click to edit', {
+        left: pointer.x - stickyWidth/2 + 10,
+        top: pointer.y - stickyHeight/2 + 10,
+        fontSize: 14,
+        fontFamily: 'Arial',
+        fill: '#333333',
+        width: stickyWidth - 20,
+        editingBorderColor: '#000',
+        selectionColor: 'rgba(0,0,0,0.2)',
+        hasControls: false
+      });
+      
+      // Add background first, then text
+      background.set({
+        left: pointer.x - stickyWidth/2,
+        top: pointer.y - stickyHeight/2
+      });
+      
+      // Store reference to each other
+      (background as any).stickyTextRef = text;
+      (text as any).stickyBackgroundRef = background;
+      
+      // Add special handling for the group
+      background.on('moving', (e) => {
+        if (text && (background as any).stickyTextRef === text) {
+          // Ensure text moves with background
+          const dx = background.left! - (background as any)._lastLeft;
+          const dy = background.top! - (background as any)._lastTop;
+          
+          text.set({
+            left: text.left! + dx,
+            top: text.top! + dy
+          });
+          
+          text.setCoords();
+        }
+        
+        // Save the last position for calculating delta next time
+        (background as any)._lastLeft = background.left;
+        (background as any)._lastTop = background.top;
+      });
+      
+      // Handle text editing - ensure background stays in place
+      text.on('editing:entered', () => {
+        // Prevent accidentally moving the background during text editing
+        if ((text as any).stickyBackgroundRef) {
+          (text as any).stickyBackgroundRef.selectable = false;
+        }
+      });
+      
+      text.on('editing:exited', () => {
+        // Re-enable moving the background after editing
+        if ((text as any).stickyBackgroundRef) {
+          (text as any).stickyBackgroundRef.selectable = true;
+        }
+      });
+      
+      // Add objects to canvas
+      canvasRef.current.add(background);
+      canvasRef.current.add(text);
+      
+      // Store initial positions
+      (background as any)._lastLeft = background.left;
+      (background as any)._lastTop = background.top;
+      
+      // Set the text as active to show it's editable
+      canvasRef.current.setActiveObject(text);
+      canvasRef.current.renderAll();
+      
+      // Save state
+      generateHistoryState();
+    };
+    
+    // Add event listener
+    canvasRef.current.on('mouse:down', onMouseDown);
+    
+    // Double-click handler for editing existing sticky notes
+    canvasRef.current.on('mouse:dblclick', (options) => {
+      if (!canvasRef.current) return;
+      
+      const target = options.target;
+      if (!target) return;
+      
+      // If clicked on background, find the text
+      if (target.type === 'rect' && (target as any).stickyTextRef) {
+        const textObj = (target as any).stickyTextRef;
+        canvasRef.current.setActiveObject(textObj);
+        textObj.enterEditing();
+        canvasRef.current.renderAll();
+      }
+      // If clicked on text, edit it
+      else if (target.type === 'i-text') {
+        target.enterEditing();
+        canvasRef.current.renderAll();
+      }
+    });
+    
+    // Configure canvas for sticky note tool
+    canvasRef.current.defaultCursor = 'crosshair';
+    canvasRef.current.hoverCursor = 'crosshair';
+    canvasRef.current.selection = true;
+    
+  }, [canvasRef, generateHistoryState]);
+
+  // Add this to the addToCanvas function or object creation
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    
+    // Make all existing objects erasable except the grid
+    canvasRef.current.getObjects().forEach(obj => {
+      if (obj.data?.type !== 'grid') {
+        obj.erasable = true;
+      }
+    });
+    
+    // Also set up a handler to make new objects erasable
+    const handleObjectAdded = (e: any) => {
+      const obj = e.target;
+      if (obj && obj.data?.type !== 'grid') {
+        obj.erasable = true;
+      }
+    };
+    
+    canvasRef.current.on('object:added', handleObjectAdded);
+    
+    return () => {
+      canvasRef.current?.off('object:added', handleObjectAdded);
+    };
+  }, [canvasRef.current]);
+
+  // First, add these refs at the top of your component to track shape drawing
+  const activeShapeRef = useRef<fabric.Object | null>(null);
+  const startPosRef = useRef<{ x: number, y: number } | null>(null);
+  const isShapeDrawingRef = useRef<boolean>(false);
+  const tempShapeRef = useRef<fabric.Object | null>(null);
+
+  // Add these state variables for shape properties
+  const [shapeStroke, setShapeStroke] = useState('#000000');
+  const [shapeStrokeWidth, setShapeStrokeWidth] = useState(2);
+  const [shapeFill, setShapeFill] = useState('');
+  const [shapeOpacity, setShapeOpacity] = useState(1);
+  const [isHollowShape, setIsHollowShape] = useState(false);
+  const [shapeSections, setShapeSections] = useState(1);
+
+  // Add this function to create and handle shapes
+  const handleShapeTool = useCallback((options: fabric.IEvent) => {
+    if (!canvasRef.current || !activeShape) return;
+    
+    const pointer = canvasRef.current.getPointer(options.e);
+    isDrawingRef.current = true;
+    startPosRef.current = pointer;
+
+    let shape;
+    const shapeProps = {
+      left: startPosRef.current.x,
+      top: startPosRef.current.y,
+      width: 0,
+      height: 0,
+      fill: toolState.fillColor || 'transparent',
+      stroke: toolState.color,
+      strokeWidth: toolState.size,
+      selectable: true,
+      originX: 'left',
+      originY: 'top'
+    };
+
+    switch (activeShape) {
+      case 'rectangle':
+        shape = new fabric.Rect(shapeProps);
+        break;
+      case 'circle':
+        shape = new fabric.Circle({
+          ...shapeProps,
+          radius: 0,
+          originX: 'center',
+          originY: 'center'
+        });
+        break;
+      case 'triangle':
+        shape = new fabric.Triangle(shapeProps);
+        break;
+      case 'line':
+        shape = new fabric.Line(
+          [startPosRef.current.x, startPosRef.current.y, startPosRef.current.x, startPosRef.current.y],
+          {
+            stroke: toolState.color,
+            strokeWidth: toolState.size,
+            selectable: true
+          }
+        );
+        break;
+      case 'star':
+        // Initial placeholder for star
+        shape = new fabric.Polygon([], {
+          fill: toolState.fillColor || 'transparent',
+          stroke: toolState.color,
+          strokeWidth: toolState.size,
+          left: startPosRef.current.x,
+          top: startPosRef.current.y
+        });
+        break;
+      case 'arrow':
+        // Initial placeholder for arrow
+        shape = new fabric.Path('M 0 0 L 0 0', {
+          fill: toolState.fillColor || 'transparent',
+          stroke: toolState.color,
+          strokeWidth: toolState.size,
+          left: startPosRef.current.x,
+          top: startPosRef.current.y
+        });
+        break;
+      case 'polygon':
+        // Create an initial polygon
+        shape = new fabric.Polygon(
+          [{x: 0, y: 0}],
+          {
+            fill: toolState.fillColor || 'transparent',
+            stroke: toolState.color,
+            strokeWidth: toolState.size,
+            left: startPosRef.current.x,
+            top: startPosRef.current.y
+          }
+        );
+        break;
+    }
+
+    if (shape) {
+      canvasRef.current.add(shape);
+      activeShapeRef.current = shape;
+      canvasRef.current.renderAll();
+    }
+  }, [activeShape, toolState.color, toolState.size, toolState.fillColor]);
+
+  const handleShapeResize = useCallback((options: fabric.IEvent) => {
+    if (!isDrawingRef.current || !canvasRef.current || !activeShapeRef.current || !activeShape) return;
+    
+    const pointer = canvasRef.current.getPointer(options.e);
+    const shape = activeShapeRef.current;
+    
+    switch (activeShape) {
+      case 'rectangle':
+        if (shape instanceof fabric.Rect) {
+          const width = Math.abs(pointer.x - startPosRef.current.x);
+          const height = Math.abs(pointer.y - startPosRef.current.y);
+          
+          shape.set({
+            left: pointer.x < startPosRef.current.x ? pointer.x : startPosRef.current.x,
+            top: pointer.y < startPosRef.current.y ? pointer.y : startPosRef.current.y,
+            width: width,
+            height: height
+          });
+        }
+        break;
+      case 'circle':
+        if (shape instanceof fabric.Circle) {
+          const radius = Math.sqrt(
+            Math.pow(pointer.x - startPosRef.current.x, 2) + 
+            Math.pow(pointer.y - startPosRef.current.y, 2)
+          ) / 2;
+          
+          const centerX = (startPosRef.current.x + pointer.x) / 2;
+          const centerY = (startPosRef.current.y + pointer.y) / 2;
+          
+          shape.set({
+            left: centerX,
+            top: centerY,
+            radius: radius
+          });
+        }
+        break;
+      case 'triangle':
+        if (shape instanceof fabric.Triangle) {
+          const width = Math.abs(pointer.x - startPosRef.current.x);
+          const height = Math.abs(pointer.y - startPosRef.current.y);
+          
+          shape.set({
+            left: pointer.x < startPosRef.current.x ? pointer.x : startPosRef.current.x,
+            top: pointer.y < startPosRef.current.y ? pointer.y : startPosRef.current.y,
+            width: width,
+            height: height
+          });
+        }
+        break;
+      case 'line':
+        if (shape instanceof fabric.Line) {
+          shape.set({
+            x2: pointer.x,
+            y2: pointer.y
+          });
+        }
+        break;
+      case 'star':
+        // Replace the star with a more accurate one as user drags
+        canvasRef.current.remove(shape);
+        const radius = Math.sqrt(
+          Math.pow(pointer.x - startPosRef.current.x, 2) + 
+          Math.pow(pointer.y - startPosRef.current.y, 2)
+        ) / 2;
+        
+        const centerX = (startPosRef.current.x + pointer.x) / 2;
+        const centerY = (startPosRef.current.y + pointer.y) / 2;
+        
+        const starPoints = createStarPoints(centerX, centerY, 5, radius, radius * 0.4);
+        const starShape = new fabric.Polygon(starPoints, {
+          fill: toolState.fillColor || 'transparent',
+          stroke: toolState.color,
+          strokeWidth: toolState.size
+        });
+        
+        canvasRef.current.add(starShape);
+        activeShapeRef.current = starShape;
+        break;
+      case 'arrow':
+        // Replace with a proper arrow shape
+        canvasRef.current.remove(shape);
+        const arrowObj = createArrow(
+          startPosRef.current.x, 
+          startPosRef.current.y, 
+          pointer.x, 
+          pointer.y, 
+          {
+            fill: toolState.color,
+            stroke: toolState.color,
+            strokeWidth: toolState.size
+          }
+        );
+        
+        canvasRef.current.add(arrowObj);
+        activeShapeRef.current = arrowObj;
+        break;
+      case 'polygon':
+        if (shape instanceof fabric.Polygon) {
+          // Create a regular polygon based on drag distance
+          canvasRef.current.remove(shape);
+          const radius = Math.sqrt(
+            Math.pow(pointer.x - startPosRef.current.x, 2) + 
+            Math.pow(pointer.y - startPosRef.current.y, 2)
+          ) / 2;
+          
+          const centerX = (startPosRef.current.x + pointer.x) / 2;
+          const centerY = (startPosRef.current.y + pointer.y) / 2;
+          
+          // Create a 6-sided polygon
+          const sides = 6;
+          const points = [];
+          for (let i = 0; i < sides; i++) {
+            const angle = (i * 2 * Math.PI) / sides;
+            points.push({
+              x: centerX + radius * Math.cos(angle),
+              y: centerY + radius * Math.sin(angle)
+            });
+          }
+          
+          const polygonShape = new fabric.Polygon(points, {
+            fill: toolState.fillColor || 'transparent',
+            stroke: toolState.color,
+            strokeWidth: toolState.size
+          });
+          
+          canvasRef.current.add(polygonShape);
+          activeShapeRef.current = polygonShape;
+        }
+        break;
+    }
+    
+    canvasRef.current.renderAll();
+  }, [activeShape, toolState.color, toolState.size, toolState.fillColor]);
+
+  const handleShapeComplete = useCallback(() => {
+    isDrawingRef.current = false;
+    
+    if (canvasRef.current && activeShapeRef.current) {
+      // Make the object selectable now that drawing is complete
+      activeShapeRef.current.set({
+        selectable: true
+      });
+      
+      canvasRef.current.setActiveObject(activeShapeRef.current);
+      canvasRef.current.renderAll();
+      
+      // Add to history
+      generateHistoryState();
+      
+      // Reset to selection tool if not persistent
+      if (!toolState.isToolPersistent) {
+        handleToolSelect('select');
+      }
+    }
+  }, [generateHistoryState, toolState.isToolPersistent, handleToolSelect]);
+
+  // Ensure these shape creation helper functions are properly implemented
+  const createStarPoints = (centerX: number, centerY: number, points: number, outerRadius: number, innerRadius: number) => {
+    const angleIncrement = Math.PI / points;
+    const starPoints = [];
+    
+    for (let i = 0; i < points * 2; i++) {
+      const radius = i % 2 === 0 ? outerRadius : innerRadius;
+      const angle = i * angleIncrement;
+      
+      starPoints.push({
+        x: centerX + radius * Math.cos(angle - Math.PI / 2),
+        y: centerY + radius * Math.sin(angle - Math.PI / 2)
+      });
+    }
+    
+    return starPoints;
+  };
+
+  const createArrow = (fromX: number, fromY: number, toX: number, toY: number, options: any) => {
+    // Calculate the angle of the line
+    const angle = Math.atan2(toY - fromY, toX - fromX);
+    
+    // Arrow head size and angle
+    const headLength = 15;
+    const headAngle = 25 * (Math.PI / 180); // 25 degrees in radians
+    
+    // Calculate arrow head points
+    const x1 = toX - headLength * Math.cos(angle + headAngle);
+    const y1 = toY - headLength * Math.sin(angle + headAngle);
+    const x2 = toX - headLength * Math.cos(angle - headAngle);
+    const y2 = toY - headLength * Math.sin(angle - headAngle);
+    
+    // Create the arrow path
+    const path = [
+      'M', fromX, fromY,
+      'L', toX, toY,
+      'L', x1, y1,
+      'M', toX, toY,
+      'L', x2, y2
+    ];
+    
+    return new fabric.Path(path.join(' '), {
+      stroke: options.stroke,
+      strokeWidth: options.strokeWidth,
+      fill: '',
+      originX: 'center',
+      originY: 'center',
+      selectable: true
+    });
+  };
+
+  // Complete shape controls panel
+  const renderShapeControls = () => {
+    if (!activeShape || !["rectangle", "circle", "triangle", "line", "star", "arrow", "polygon"].includes(activeTool)) {
+      return null;
+    }
+    
+    return (
+      <div className="shape-controls-panel">
+        <div className="shape-control-group">
+          <label>Fill Color</label>
+          <input 
+            type="color" 
+            value={toolState.fillColor || '#ffffff'} 
+            onChange={(e) => setToolState(prev => ({...prev, fillColor: e.target.value}))}
+          />
+          <button 
+            onClick={() => setToolState(prev => ({...prev, fillColor: 'transparent'}))}
+            className={toolState.fillColor === 'transparent' ? 'active' : ''}
+          >
+            No Fill
+          </button>
+        </div>
+        <div className="shape-control-group">
+          <label>Stroke Color</label>
+          <input 
+            type="color" 
+            value={toolState.color} 
+            onChange={(e) => setToolState(prev => ({...prev, color: e.target.value}))}
+          />
+        </div>
+        <div className="shape-control-group">
+          <label>Stroke Width</label>
+          <input 
+            type="range" 
+            min="1" 
+            max="20" 
+            value={toolState.size} 
+            onChange={(e) => setToolState(prev => ({...prev, size: parseInt(e.target.value)}))}
+          />
+          <span>{toolState.size}px</span>
+        </div>
+        
+        {/* Additional shape-specific controls */}
+        {activeShape === 'star' && (
+          <div className="shape-control-group">
+            <label>Points</label>
+            <input 
+              type="range" 
+              min="3" 
+              max="12" 
+              value={toolState.starPoints || 5} 
+              onChange={(e) => setToolState(prev => ({...prev, starPoints: parseInt(e.target.value)}))}
+            />
+            <span>{toolState.starPoints || 5}</span>
+          </div>
+        )}
+        
+        {activeShape === 'polygon' && (
+          <div className="shape-control-group">
+            <label>Sides</label>
+            <input 
+              type="range" 
+              min="3" 
+              max="12" 
+              value={toolState.polygonSides || 6} 
+              onChange={(e) => setToolState(prev => ({...prev, polygonSides: parseInt(e.target.value)}))}
+            />
+            <span>{toolState.polygonSides || 6}</span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Add this useEffect to set up event handlers for shape tools
+  useEffect(() => {
+    if (!canvasRef.current || !activeShape) return;
+    
+    // Clear any existing event handlers
+    canvasRef.current.off('mouse:down');
+    canvasRef.current.off('mouse:move');
+    canvasRef.current.off('mouse:up');
+    
+    // Set up event handlers for the shape tools
+    canvasRef.current.on('mouse:down', handleShapeTool);
+    canvasRef.current.on('mouse:move', handleShapeResize);
+    canvasRef.current.on('mouse:up', handleShapeComplete);
+    
+    // Configure canvas for shape drawing
+    canvasRef.current.isDrawingMode = false;
+    canvasRef.current.selection = false;
+    canvasRef.current.defaultCursor = 'crosshair';
+    canvasRef.current.hoverCursor = 'crosshair';
+    
+    return () => {
+      if (canvasRef.current) {
+        canvasRef.current.off('mouse:down', handleShapeTool);
+        canvasRef.current.off('mouse:move', handleShapeResize);
+        canvasRef.current.off('mouse:up', handleShapeComplete);
+      }
+    };
+  }, [activeShape, canvasRef, handleShapeTool, handleShapeResize, handleShapeComplete]);
+
+  // Add this useEffect to handle the onCanvasCreated callback
+  useEffect(() => {
+    if (canvasRef.current && onCanvasCreated) {
+      onCanvasCreated(canvasRef.current);
+    }
+  }, [canvasRef.current, onCanvasCreated]);
+
+  // Add a new state for AI panel
+  const [showAIPanel, setShowAIPanel] = useState(false);
+  const [aiPrompt, setAIPrompt] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [selectedArea, setSelectedArea] = useState<{ dataURL: string, objects: fabric.Object[] } | null>(null);
+
+  // Add the function to get selected area as base64
+  const getSelectedAreaAsBase64 = () => {
+    if (!canvasRef.current) return null;
+    
+    const activeObject = canvasRef.current.getActiveObject();
+    if (!activeObject) {
+      toast({
+        title: "No selection",
+        description: "Please select an area first",
+        duration: 2000
+      });
+      return null;
+    }
+    
+    // Create a temporary canvas with just the selected objects
+    const tempCanvas = new fabric.Canvas(null, {
+      width: activeObject.getScaledWidth(),
+      height: activeObject.getScaledHeight()
+    });
+    
+    // If it's a selection with multiple objects
+    if (activeObject.type === 'activeSelection') {
+      const objects = (activeObject as fabric.ActiveSelection).getObjects();
+      const group = new fabric.Group(objects.map(obj => fabric.util.object.clone(obj)));
+      
+      // Position the group at the center of the temporary canvas
+      group.set({
+        left: tempCanvas.width / 2,
+        top: tempCanvas.height / 2,
+        originX: 'center',
+        originY: 'center'
+      });
+      
+      tempCanvas.add(group);
+      return {
+        dataURL: tempCanvas.toDataURL({ format: 'png' }),
+        objects: objects
+      };
+    } 
+    // If it's a single object
+    else {
+      const clonedObject = fabric.util.object.clone(activeObject);
+      clonedObject.set({
+        left: tempCanvas.width / 2,
+        top: tempCanvas.height / 2,
+        originX: 'center',
+        originY: 'center'
+      });
+      
+      tempCanvas.add(clonedObject);
+      return {
+        dataURL: tempCanvas.toDataURL({ format: 'png' }),
+        objects: [activeObject]
+      };
+    }
+  };
+
+  // Add AI panel renderer
+  const renderAIPanel = () => {
+    if (!showAIPanel) return null;
+    
+    return (
+      <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 
+                    bg-black/90 backdrop-blur-md rounded-lg p-4 
+                    shadow-xl border border-white/10 z-50 w-[350px]">
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="text-white text-lg font-bold">AI Image Enhancement</h3>
+          <Button 
+            variant="ghost" 
+            size="icon"
+            onClick={() => setShowAIPanel(false)}
+            className="h-8 w-8 rounded-full hover:bg-white/10 text-white"
+          >
+            <X size={18} />
+          </Button>
+        </div>
+        
+        {selectedArea && (
+          <div className="mb-3 rounded overflow-hidden border border-white/20">
+            <img 
+              src={selectedArea.dataURL} 
+              alt="Selected area" 
+              className="w-full object-contain max-h-[150px]"
+            />
+          </div>
+        )}
+        
+        <div className="mb-3">
+          <Label htmlFor="ai-prompt" className="text-white mb-1 block">
+            Describe what you want to create
+          </Label>
+          <textarea
+            id="ai-prompt"
+            placeholder="A cat dressed as a wizard with a background of a mystic forest..."
+            value={aiPrompt}
+            onChange={(e) => setAIPrompt(e.target.value)}
+            className="w-full p-2 rounded bg-black/50 text-white border border-white/20 h-[100px]"
+          />
+        </div>
+        
+        <Button
+          className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white font-bold"
+          disabled={!aiPrompt.trim() || isGenerating}
+          onClick={handleAIGenerate}
+        >
+          {isGenerating ? (
+            <div className="flex items-center gap-2">
+              <Loader2 className="animate-spin" size={16} />
+              <span>Generating...</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Sparkles size={16} />
+              <span>Generate</span>
+            </div>
+          )}
+        </Button>
+      </div>
+    );
+  };
+
+  // Add the AI generation handler
+  const handleAIGenerate = async () => {
+    if (!selectedArea || !aiPrompt.trim()) return;
+    
+    setIsGenerating(true);
+    
+    try {
+      // Convert data URL to base64 string
+      const base64Image = 'data:image/png;base64,' + selectedArea.dataURL.split(',')[1];
+      
+      console.log(base64Image)
+      // Initialize the Together client
+      const together = new Together({ apiKey: "bcf74375cfd1a4fd4d5d85ef46fcd24f4d98486555478b367daee5f192a0e5e0" });
+      
+      // Use the SDK to make the API call
+      const response = await together.images.create({
+        model: "black-forest-labs/FLUX.1-canny",
+        prompt: aiPrompt,
+        width: 512,
+        height: 512,
+        steps: 28,
+        n: 1,
+        response_format: "b64_json",
+        stop: [],
+        image_url:base64Image
+      });
+      
+      console.log("Generation response:", response);
+      
+      // Handle the response
+      if (response.data && response.data.length > 0) {
+        // If the response includes a base64 encoded image
+        if (response.data[0].b64_json) {
+          const imageUrl = `data:image/png;base64,${response.data[0].b64_json}`;
+          applyGeneratedImage(imageUrl);
+        } 
+        // If the response includes a URL
+        else if (response.data[0].url) {
+          applyGeneratedImage(response.data[0].url);
+        }
+        else {
+          throw new Error("No image data in response");
+        }
+      } else {
+        throw new Error("No image generated");
+      }
+    } catch (error) {
+      console.error("AI generation error:", error);
+      toast({
+        title: "Generation failed",
+        description: error.message || "There was an error generating the image",
+        variant: "destructive"
+      });
+      setIsGenerating(false);
+    }
+  };
+
+  // Apply the generated image
+  const applyGeneratedImage = (imageUrl: string) => {
+    if (!canvasRef.current || !selectedArea) {
+      setIsGenerating(false);
+      return;
+    }
+    
+    fabric.Image.fromURL(imageUrl, (img) => {
+      // Remove the original objects
+      selectedArea.objects.forEach(obj => {
+        canvasRef.current?.remove(obj);
+      });
+      
+      // Calculate position
+      const activeObject = canvasRef.current.getActiveObject();
+      const left = activeObject ? activeObject.left : canvasWidth / 2;
+      const top = activeObject ? activeObject.top : canvasHeight / 2;
+      
+      // Add the new image
+      img.set({
+        left,
+        top,
+        originX: 'center',
+        originY: 'center'
+      });
+      
+      canvasRef.current.add(img);
+      canvasRef.current.setActiveObject(img);
+      canvasRef.current.renderAll();
+      
+      // Update history
+      generateHistoryState();
+      
+      // Clean up
+      setShowAIPanel(false);
+      setIsGenerating(false);
+      setAIPrompt("");
+      setSelectedArea(null);
+      
+      toast({
+        title: "Generation complete",
+        description: "AI image has been added to your canvas"
+   
+      });
+    });
+  };
+
+  // In the handleToolSelect function, add handling for AI tools
+ 
   return (
     <motion.div 
       className={cn(
@@ -5033,11 +5367,19 @@ const ArtCanvas = ({ fullScreen = false, onChanged, width = 800, height = 600, i
           )}
           width={canvasWidth}
           height={canvasHeight}
-          onCanvasCreated={handleCanvasCreated}
+          onCanvasCreated={canvas => {
+            canvasRef.current = canvas;
+            
+            
+            // Call the onCanvasCreated prop if it exists
+            if (onCanvasCreated) {
+              onCanvasCreated(canvas);
+            }
+          }}
           showGrid={showGrid}
           gridSize={gridSize}
           bgColor={bgColor}
-          key="main-canvas"
+           
         />
       </div>
       
@@ -5047,6 +5389,8 @@ const ArtCanvas = ({ fullScreen = false, onChanged, width = 800, height = 600, i
       {/* Add the new UI components */}
       {renderTransformPanel()}
       {renderTextFormatToolbar()}
+      {renderShapeControls()}
+      {renderAIPanel()} {/* Add the AI panel */}
     </motion.div>
   );
 };

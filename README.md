@@ -71,3 +71,112 @@ Yes it is!
 To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
 
 Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+
+# ArtFlow Canvas Magic
+
+A collaborative canvas drawing application with real-time editing capabilities.
+
+## Features
+
+- Real-time collaborative editing
+- Persistent user sessions
+- Robust error handling and reconnection logic
+- Share canvas links with others to collaborate
+- Multiple drawing tools and effects
+
+## Setup Instructions
+
+### Supabase Configuration
+
+This application uses Supabase for real-time collaboration features. To set up Supabase:
+
+1. Create a Supabase account at https://supabase.io
+2. Create a new project
+3. Get your project URL and anon/public key from the API settings page
+4. Add the following SQL in the SQL Editor to create required tables and policies:
+
+```sql
+-- Create the canvas_sessions table
+CREATE TABLE IF NOT EXISTS canvas_sessions (
+  id UUID PRIMARY KEY,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  created_by UUID,
+  name TEXT,
+  canvas_state JSONB NOT NULL,
+  is_active BOOLEAN DEFAULT true,
+  last_modified TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  max_participants INTEGER DEFAULT 10
+);
+
+-- Enable Row Level Security
+ALTER TABLE canvas_sessions ENABLE ROW LEVEL SECURITY;
+
+-- Create policies for canvas_sessions
+CREATE POLICY "Anyone can view active sessions" 
+  ON canvas_sessions 
+  FOR SELECT 
+  USING (true);
+
+CREATE POLICY "Anyone can create sessions" 
+  ON canvas_sessions 
+  FOR INSERT 
+  USING (true);
+
+CREATE POLICY "Anyone can update sessions" 
+  ON canvas_sessions 
+  FOR UPDATE 
+  USING (true);
+
+-- Enable Realtime for the canvas_sessions table
+BEGIN;
+  DROP PUBLICATION IF EXISTS supabase_realtime;
+  CREATE PUBLICATION supabase_realtime;
+COMMIT;
+
+ALTER PUBLICATION supabase_realtime ADD TABLE canvas_sessions;
+
+-- Add Realtime subscription rules for collaboration channels
+INSERT INTO _realtime.subscription_rules
+  (type_id, name, topic, claims, claims_role)
+VALUES
+  (1, 'Allow anonymous canvas collaboration', 'canvas:*', '{}', 'anon'),
+  (1, 'Allow authenticated canvas collaboration', 'canvas:*', '{}', 'authenticated'),
+  (1, 'Allow system channel for anonymous', 'system', '{}', 'anon'),
+  (1, 'Allow system channel for authenticated', 'system', '{}', 'authenticated');
+```
+
+5. Update the `src/integrations/supabase/client.ts` file with your Supabase URL and key
+
+### Local Development
+
+1. Clone the repository
+2. Install dependencies:
+   ```
+   npm install
+   ```
+3. Run the development server:
+   ```
+   npm run dev
+   ```
+4. Open [http://localhost:3000](http://localhost:3000) in your browser
+
+## Collaboration Usage
+
+1. Create a new canvas or open an existing one
+2. The URL will contain a unique canvas ID
+3. Share this URL with others to collaborate in real-time
+4. Connected users will see a collaborator count in the bottom-right corner
+5. Changes are broadcast to all connected users in real-time
+
+## Troubleshooting
+
+If you encounter issues with collaboration:
+
+1. Check the browser console for error messages
+2. Make sure your Supabase project has realtime enabled in the project settings
+3. Verify that the realtime policies have been applied correctly
+4. Try refreshing the page or clicking the connection indicator to force reconnection
+
+## License
+
+MIT
